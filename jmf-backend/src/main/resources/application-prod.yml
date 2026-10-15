@@ -1,0 +1,10 @@
+# Produção: exige Neon Auth e desliga documentação.
+springdoc:
+  api-docs:
+    enabled: false
+  swagger-ui:
+    enabled: false
+
+jmf:
+  auth:
+    mode: neon

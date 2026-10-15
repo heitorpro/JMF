@@ -1,0 +1,17 @@
+jmf:
+  database-url-env:
+    enabled: false
+  auth:
+    mode: hmac
+    hmac-secret: test-secret-0123456789abcdef0123456789abcdef
+    issuer: jmf-test
+  rate-limit:
+    enabled: false
+  storage:
+    local-dir: ${java.io.tmpdir}/jmf-test-attachments
+  cors:
+    allowed-origins: http://localhost:3000
+
+logging:
+  level:
+    br.com.jmf: INFO

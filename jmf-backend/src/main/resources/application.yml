@@ -1,0 +1,107 @@
+# =====================================================================
+# JMF backend — configuração base (produção). Perfis: dev, test, prod.
+# Banco: DATABASE_URL / DATABASE_URL_UNPOOLED (formato Neon) são convertidos
+# automaticamente para JDBC (DatabaseUrlEnvironmentPostProcessor).
+# =====================================================================
+server:
+  port: ${PORT:8080}
+  forward-headers-strategy: framework   # IP real atrás de proxy (rate limit / logs)
+  error:
+    include-message: never
+    include-stacktrace: never
+  servlet:
+    encoding:
+      charset: UTF-8
+      force: true
+
+spring:
+  application:
+    name: jmf-backend
+  threads:
+    virtual:
+      enabled: true
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: none            # o schema é responsabilidade exclusiva do Flyway
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+        default_batch_fetch_size: 50
+  datasource:
+    hikari:
+      maximum-pool-size: ${DB_POOL_SIZE:10}
+      connection-timeout: 10000
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: false
+  servlet:
+    multipart:
+      max-file-size: 10MB
+      max-request-size: 11MB
+  jackson:
+    default-property-inclusion: always
+    deserialization:
+      fail-on-unknown-properties: true   # payloads com campos inesperados (ex.: price, customerId) → 400
+    time-zone: UTC
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: never
+
+springdoc:
+  api-docs:
+    enabled: ${JMF_API_DOCS_ENABLED:false}
+  swagger-ui:
+    enabled: ${JMF_API_DOCS_ENABLED:false}
+
+logging:
+  pattern:
+    level: "%5p [%X{requestId:-}]"
+  level:
+    root: INFO
+    org.hibernate.SQL: WARN
+
+jmf:
+  auth:
+    mode: ${JMF_AUTH_MODE:neon}
+    neon-base-url: ${NEON_AUTH_BASE_URL:}
+    jwks-uri: ${JMF_AUTH_JWKS_URI:}          # padrão: ${NEON_AUTH_BASE_URL}/.well-known/jwks.json
+    issuer: ${JMF_AUTH_ISSUER:}              # padrão: origem de NEON_AUTH_BASE_URL
+    audience: ${JMF_AUTH_AUDIENCE:}          # opcional
+    hmac-secret: ${JMF_DEV_JWT_SECRET:}      # somente mode=hmac (dev/test)
+    jwks-cache-ttl: 10m
+    clock-skew: 60s
+    admin-roles: ${JMF_ADMIN_ROLES:admin}
+  cors:
+    allowed-origins: ${JMF_CORS_ORIGINS:}    # ex.: https://jmf.vercel.app,https://www.jmfentulhos.com.br
+  rate-limit:
+    enabled: true
+    writes-per-minute: 10
+    geocode-per-minute: 30
+    uploads-per-minute: 10
+    reads-per-minute: 300
+  service-area:
+    enabled: ${JMF_SERVICE_AREA_ENABLED:true}
+    center-latitude: -2.5297                 # São Luís — MA
+    center-longitude: -44.3028
+    radius-km: ${JMF_SERVICE_RADIUS_KM:80}
+    allowed-states: MA
+  storage:
+    local-dir: ${JMF_STORAGE_DIR:./data/attachments}
+    max-bytes: 10485760                      # 10 MB
+  http:
+    content-security-policy: "default-src 'none'; frame-ancestors 'none'; base-uri 'none'"
+  requests:
+    max-days-ahead: 90
+  geocoding:
+    provider: none

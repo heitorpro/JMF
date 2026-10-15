@@ -1,0 +1,9 @@
+pmOnFail: ignore
+
+minimumReleaseAgeExclude:
+  - '@next/*'
+  - next
+
+# core-js só imprime uma mensagem no postinstall; não precisa rodar.
+allowBuilds:
+  core-js: false

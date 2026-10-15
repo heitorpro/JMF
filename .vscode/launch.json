@@ -1,0 +1,39 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "type": "java",
+      "name": "JMF Backend - NEON DEV",
+      "request": "launch",
+      "mainClass": "br.com.jmf.JmfApplication",
+      "projectName": "jmf-backend",
+      "cwd": "${workspaceFolder}/jmf-backend",
+      "env": {
+        "DATABASE_URL": "postgresql://neondb_owner:npg_7hmBRcfpaj6i@ep-soft-rain-b8j8yts5-pooler.c-14.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require",
+        "DATABASE_URL_UNPOOLED": "postgresql://neondb_owner:npg_7hmBRcfpaj6i@ep-soft-rain-b8j8yts5.c-14.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require",
+        "JMF_AUTH_MODE": "neon",
+        "NEON_AUTH_BASE_URL": "https://ep-red-bar-b82o2yux.neonauth.c-14.us-east-1.aws.neon.tech/neondb/auth",
+        "JMF_CORS_ORIGINS": "http://localhost:3000"
+      }
+    },
+    
+    {
+      "type": "java",
+      "name": "JMF Backend - LOCAL (Docker)",
+      "request": "launch",
+      "mainClass": "br.com.jmf.JmfApplication",
+      "projectName": "jmf-backend",
+      "cwd": "${workspaceFolder}/jmf-backend",
+      "env": {
+        "SPRING_PROFILES_ACTIVE": "dev",
+        "SPRING_DATASOURCE_URL": "jdbc:postgresql://localhost:5432/jmf",
+        "SPRING_DATASOURCE_USERNAME": "jmf",
+        "SPRING_DATASOURCE_PASSWORD": "jmf",
+        "JMF_AUTH_MODE": "neon",
+        "NEON_AUTH_BASE_URL": "https://ep-red-bar-b82o2yux.neonauth.c-14.us-east-1.aws.neon.tech/neondb/auth",
+        "JMF_CORS_ORIGINS": "http://localhost:3000"
+      }
+    },
+    
+  ]
+}

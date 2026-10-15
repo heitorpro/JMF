@@ -1,0 +1,26 @@
+# Desenvolvimento local. NUNCA usar em produção.
+spring:
+  flyway:
+    locations: classpath:db/migration,classpath:db/seed   # inclui seed de demonstração
+  jpa:
+    show-sql: false
+
+springdoc:
+  api-docs:
+    enabled: true
+  swagger-ui:
+    enabled: true
+
+jmf:
+  auth:
+    mode: ${JMF_AUTH_MODE:hmac}
+    hmac-secret: ${JMF_DEV_JWT_SECRET:dev-only-secret-change-me-0123456789abcdef}
+  cors:
+    allowed-origins: ${JMF_CORS_ORIGINS:http://localhost:3000}
+  http:
+    # Swagger UI precisa de scripts/estilos próprios
+    content-security-policy: "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; frame-ancestors 'none'"
+
+logging:
+  level:
+    br.com.jmf: DEBUG

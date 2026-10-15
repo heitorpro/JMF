@@ -1,0 +1,14 @@
+# PostgreSQL local para desenvolvimento (perfil dev).
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: jmf
+      POSTGRES_USER: jmf
+      POSTGRES_PASSWORD: jmf
+    ports:
+      - "5432:5432"
+    volumes:
+      - jmf-pg:/var/lib/postgresql/data
+volumes:
+  jmf-pg:
