@@ -72,6 +72,7 @@ import { ManagerRentalsPage } from './manager-rentals'
 import { ManagerRequests } from './manager-requests'
 import { ManagerSettingsPage } from './manager-settings'
 import { CustomerAvatar } from './ui'
+import { RentalSwitcher, type TrackItem } from './rental-switcher'
 
 const EMPTY_SETTINGS: CompanySettings = {
   weeklyPrice: 0,
@@ -213,12 +214,53 @@ export function JmfAppShell({
   }, [dumpsters])
   // O cliente não enxerga a frota; a disponibilidade é verificada pela equipe ao aprovar.
   const availableCount = mode === 'cliente' ? clientAvailable : availableDumpsterIds.length
-  const activeDumpster = dumpsters.find(
-    (dumpster) => dumpster.customerId === customer.id && dumpster.status === 'ocupada',
-  )
-  const activeRental = rentals.find(
-    (rental) => rental.customerId === customer.id && rental.status === 'ativo',
-  )
+  // Cliente com mais de um aluguel (ou pedido em andamento): escolhe qual acompanhar.
+  const clientDumpsters = useMemo(() => mode === 'cliente'
+    ? dumpsters.filter((dumpster) => dumpster.customerId === customer.id && dumpster.status === 'ocupada')
+    : [], [customer.id, dumpsters, mode])
+  const pendingRentalRequests = useMemo(() => mode === 'cliente'
+    ? requests.filter((request) => request.customerId === customer.id && request.type === 'aluguel' && ['pendente', 'aprovada', 'em_entrega'].includes(request.status))
+    : [], [customer.id, mode, requests])
+  const trackItems: TrackItem[] = useMemo(() => [
+    ...clientDumpsters.map((dumpster) => ({
+      key: `d:${dumpster.id}`,
+      kind: 'aluguel' as const,
+      title: `Caçamba ${dumpster.id}`,
+      subtitle: [dumpster.location ? `${dumpster.location.street}, ${dumpster.location.number}` : '', dumpster.rentalStartedAt ? `desde ${formatDate(dumpster.rentalStartedAt)}` : ''].filter(Boolean).join(' · '),
+    })),
+    ...pendingRentalRequests.map((request) => ({
+      key: `r:${request.id}`,
+      kind: 'pedido' as const,
+      title: `Pedido ${request.id}`,
+      subtitle: [request.location ? `${request.location.street}, ${request.location.number}` : '', request.status === 'pendente' ? 'aguardando aprovação' : request.status === 'aprovada' ? 'aprovado' : 'em entrega'].filter(Boolean).join(' · '),
+    })),
+  ], [clientDumpsters, pendingRentalRequests])
+  const [selectedTrackKey, setSelectedTrackKey] = useState('')
+  const selectedTrack = trackItems.find((item) => item.key === selectedTrackKey) ?? trackItems[0]
+  const activeDumpster = selectedTrack?.kind === 'aluguel'
+    ? clientDumpsters.find((dumpster) => `d:${dumpster.id}` === selectedTrack.key)
+    : undefined
+  const focusRequest = selectedTrack?.kind === 'pedido'
+    ? pendingRentalRequests.find((request) => `r:${request.id}` === selectedTrack.key)
+    : undefined
+  const activeRental = activeDumpster
+    ? rentals.find((rental) => rental.status === 'ativo' && rental.dumpsterId === activeDumpster.id)
+    : undefined
+
+  // Ações em andamento (evita clique duplo e mostra carregando no botão certo).
+  const [busyIds, setBusyIds] = useState<Set<string>>(() => new Set())
+  const setBusy = (id: string, busy: boolean) => setBusyIds((current) => {
+    const next = new Set(current)
+    if (busy) next.add(id)
+    else next.delete(id)
+    return next
+  })
+  /** Recarrega em segundo plano: a tela já foi atualizada com a resposta da ação. */
+  const refreshInBackground = () => { void reload() }
+  const upsertRequest = (updated: RentalRequest) => setRequests((current) => {
+    const exists = current.some((item) => item.id === updated.id)
+    return exists ? current.map((item) => (item.id === updated.id ? updated : item)) : [updated, ...current]
+  })
 
   const applySnapshot = (snapshot: JmfSnapshot) => {
     if (snapshot.customer) setCustomer(snapshot.customer)
@@ -323,7 +365,9 @@ export function JmfAppShell({
     try {
       const request = await httpJmfService.createRentalRequest(input)
       toast.success(`Solicitação ${request.id} enviada. Acompanhe as próximas etapas por aqui.`)
-      await reload()
+      upsertRequest(request)
+      setSelectedTrackKey(`r:${request.id}`)
+      refreshInBackground()
     } catch (error) {
       toast.error(apiErrorMessage(error))
       throw error
@@ -346,8 +390,9 @@ export function JmfAppShell({
         reason: 'Troca solicitada pelo cliente',
       })
       toast.success(`Solicitação de troca ${request.id} enviada com sucesso.`)
-      await reload()
+      upsertRequest(request)
       setActivePage('acompanhamento')
+      refreshInBackground()
     } catch (error) {
       toast.error(apiErrorMessage(error))
     }
@@ -369,8 +414,9 @@ export function JmfAppShell({
         notes,
       })
       toast.success(`Solicitação de retirada ${request.id} enviada com sucesso.`)
-      await reload()
+      upsertRequest(request)
       setActivePage('acompanhamento')
+      refreshInBackground()
     } catch (error) {
       toast.error(apiErrorMessage(error))
     }
@@ -380,9 +426,11 @@ export function JmfAppShell({
     const request = requests.find((item) => item.id === requestId)
     if (!request) return
     const nextStatus = getNextRequestStatus(request)
-    if (!nextStatus) return
+    if (!nextStatus || busyIds.has(requestId)) return
+    setBusy(requestId, true)
     try {
       const updated = await changeRequestStatus(requestId, nextStatus)
+      upsertRequest(updated)
       const messages: Partial<Record<typeof nextStatus, string>> = {
         aprovada: 'Solicitação aprovada.',
         em_entrega: `Entrega iniciada${updated.dumpsterId ? ` com a caçamba ${updated.dumpsterId}` : ''}.`,
@@ -392,39 +440,57 @@ export function JmfAppShell({
         finalizada: 'Retirada finalizada. Caçamba liberada no estoque.',
       }
       toast.success(messages[nextStatus] ?? 'Solicitação atualizada.')
-      await reload()
+      refreshInBackground()
     } catch (error) {
       toast.error(apiErrorMessage(error))
+    } finally {
+      setBusy(requestId, false)
     }
   }
 
   const rejectRequest = async (requestId: string) => {
+    if (busyIds.has(requestId)) return
+    setBusy(requestId, true)
     try {
-      await changeRequestStatus(requestId, 'rejeitada')
+      upsertRequest(await changeRequestStatus(requestId, 'rejeitada'))
       toast.success('Solicitação marcada como rejeitada.')
-      await reload()
+      refreshInBackground()
     } catch (error) {
       toast.error(apiErrorMessage(error))
+    } finally {
+      setBusy(requestId, false)
     }
   }
 
   const completeSwap = async (requestId: string, replacementId: string) => {
+    if (busyIds.has(requestId)) return
+    setBusy(requestId, true)
     try {
       const updated = await completeSwapApi(requestId, replacementId)
+      upsertRequest(updated)
       toast.success(`Troca concluída. ${updated.replacementDumpsterId ?? replacementId} em uso; novo aluguel de ${formatCurrency(updated.price)}/semana.`)
-      await reload()
+      refreshInBackground()
     } catch (error) {
       toast.error(apiErrorMessage(error, 'Não foi possível concluir a troca. Atualize a disponibilidade e tente novamente.'))
+    } finally {
+      setBusy(requestId, false)
     }
   }
 
   const changeDumpsterStatus = async (dumpsterId: string, status: DumpsterStatus) => {
+    if (busyIds.has(dumpsterId)) return
+    const previous = dumpsters
+    setBusy(dumpsterId, true)
+    setDumpsters((current) => current.map((dumpster) => (dumpster.id === dumpsterId ? { ...dumpster, status } : dumpster)))
     try {
       await updateDumpsterStatus(dumpsterId, status)
       toast.success(`Status da caçamba ${dumpsterId} atualizado.`)
-      await reload()
+      refreshInBackground()
     } catch (error) {
+      setDumpsters(previous)
       toast.error(apiErrorMessage(error))
+    } finally {
+      setBusy(dumpsterId, false)
     }
   }
 
@@ -433,7 +499,7 @@ export function JmfAppShell({
       const updated = await updateProfile({ name: data.name, phone: data.phone, cpf: data.cpf })
       setMe(updated)
       toast.success('Perfil atualizado.')
-      await reload()
+      refreshInBackground()
     } catch (error) {
       toast.error(apiErrorMessage(error))
       throw error
@@ -482,7 +548,7 @@ export function JmfAppShell({
         return <ClientRentalPage customer={customer} weeklyPrice={settings.weeklyPrice} plans={settings.plans} availableCount={availableCount} onSubmit={handleCreateRental} onBack={() => navigate('acompanhamento')} />
       }
       if (activePage === 'acompanhamento') {
-        return <ClientTrackingPage customerId={customer.id} currentDumpster={activeDumpster} requests={requests} onWhatsApp={handleWhatsApp} onRent={() => navigate('alugar')} onCreateSwap={handleCreateSwap} onCreateRemoval={handleCreateRemoval} />
+        return <ClientTrackingPage customerId={customer.id} currentDumpster={activeDumpster} focusRequest={focusRequest} requests={requests} onWhatsApp={handleWhatsApp} onRent={() => navigate('alugar')} onCreateSwap={handleCreateSwap} onCreateRemoval={handleCreateRemoval} />
       }
       if (activePage === 'historico') {
         return <ClientHistoryPage customer={customer} rentals={rentals} onRent={() => navigate('alugar')} />
@@ -492,10 +558,10 @@ export function JmfAppShell({
     }
 
     if (activePage === 'solicitacoes') {
-      return <ManagerRequests requests={requests} dumpsters={dumpsters} customers={customers} searchQuery={searchQuery} onAdvance={advanceRequest} onReject={rejectRequest} onCompleteSwap={completeSwap} />
+      return <ManagerRequests requests={requests} dumpsters={dumpsters} customers={customers} searchQuery={searchQuery} busyIds={busyIds} onAdvance={advanceRequest} onReject={rejectRequest} onCompleteSwap={completeSwap} />
     }
     if (activePage === 'cacambas') {
-      return <ManagerDumpstersPage dumpsters={dumpsters} searchQuery={searchQuery} onChangeStatus={changeDumpsterStatus} onNavigate={navigate} />
+      return <ManagerDumpstersPage dumpsters={dumpsters} searchQuery={searchQuery} busyIds={busyIds} onChangeStatus={changeDumpsterStatus} onNavigate={navigate} />
     }
     if (activePage === 'estoque') return <ManagerStockPage dumpsters={dumpsters} onNavigate={navigate} />
     if (activePage === 'mapa') return <ManagerMapPage dumpsters={dumpsters} />
@@ -632,6 +698,9 @@ export function JmfAppShell({
 
           <main id="inicio" className="flex-1 px-4 py-6 sm:px-6 sm:py-7 xl:px-9 xl:py-8">
             <div className="mx-auto w-full max-w-[1500px] animate-in fade-in duration-300">
+              {mode === 'cliente' && trackItems.length > 1 && (activePage === 'dashboard' || activePage === 'acompanhamento') ? (
+                <RentalSwitcher items={trackItems} selectedKey={selectedTrack?.key ?? ''} onSelect={setSelectedTrackKey} />
+              ) : null}
               {renderContent()}
             </div>
           </main>

@@ -9,6 +9,7 @@ import br.com.jmf.domain.model.Customer;
 import br.com.jmf.domain.repository.AppUserRepository;
 import br.com.jmf.domain.repository.CustomerRepository;
 import br.com.jmf.security.CurrentUser;
+import br.com.jmf.security.CurrentUserCache;
 import br.com.jmf.web.dto.Inputs;
 import br.com.jmf.web.dto.Views;
 import org.springframework.stereotype.Service;
@@ -21,8 +22,10 @@ public class MeService {
 
     private final AppUserRepository users;
     private final CustomerRepository customers;
+    private final CurrentUserCache userCache;
 
-    public MeService(AppUserRepository users, CustomerRepository customers) {
+    public MeService(AppUserRepository users, CustomerRepository customers, CurrentUserCache userCache) {
+        this.userCache = userCache;
         this.users = users;
         this.customers = customers;
     }
@@ -41,6 +44,7 @@ public class MeService {
      */
     @Transactional
     public Views.MeView update(CurrentUser current, Inputs.UpdateMe in) {
+        userCache.evict(current.authUserId()); // nome/telefone mudam: próximo acesso relê do banco
         AppUser user = users.findById(current.userId()).orElseThrow(ApiException::notFound);
         Customer customer = current.customerId() == null ? null
                 : customers.findById(current.customerId()).orElse(null);

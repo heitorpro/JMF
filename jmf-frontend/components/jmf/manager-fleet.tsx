@@ -41,9 +41,11 @@ export function ManagerDumpstersPage({
   searchQuery,
   onChangeStatus,
   onNavigate,
+  busyIds = new Set<string>(),
 }: {
   dumpsters: Dumpster[]
   searchQuery: string
+  busyIds?: Set<string>
   onChangeStatus: (dumpsterId: string, status: DumpsterStatus) => void
   onNavigate: (page: PageKey) => void
 }) {
@@ -113,7 +115,7 @@ export function ManagerDumpstersPage({
                   ) : (
                     <div className="mt-4 flex min-h-20 items-center justify-between gap-3 border-t border-border/70 pt-3">
                       <div className="min-w-0"><p className="text-xs text-muted-foreground">{dumpster.status === 'livre' ? 'Pronta para uma nova locação' : dumpster.status === 'manutencao' ? 'Indisponível durante revisão' : 'Fora de operação'}</p>{dumpster.notes ? <p className="mt-1 truncate text-[11px] text-muted-foreground">{dumpster.notes}</p> : null}</div>
-                      <Select value={dumpster.status} onValueChange={(value) => onChangeStatus(dumpster.id, value as DumpsterStatus)}>
+                      <Select value={dumpster.status} disabled={busyIds.has(dumpster.id)} onValueChange={(value) => onChangeStatus(dumpster.id, value as DumpsterStatus)}>
                         <SelectTrigger aria-label={`Atualizar status da caçamba ${dumpster.id}`} className="h-8 w-9 shrink-0 justify-center px-1.5"><Settings2 aria-hidden="true" className="size-4" /></SelectTrigger>
                         <SelectContent align="end">
                           <SelectGroup>

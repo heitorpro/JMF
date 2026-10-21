@@ -1,9 +1,10 @@
 'use client'
 
-import { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import { MapContainer, Marker, Popup, TileLayer, useMap, useMapEvents } from 'react-leaflet'
 import L from 'leaflet'
 import type { MapPoint } from '@/lib/jmf/types'
+import type { JmfMapProps } from './map'
 import { DUMPSTER_STATUS_LABELS } from '@/lib/jmf/types'
 import { formatDate } from '@/lib/jmf/format'
 
@@ -26,6 +27,34 @@ function FollowPoint({ center, zoom }: { center: [number, number]; zoom: number 
   return null
 }
 
+/** Enquadra todos os pontos quando o conjunto muda (sem desfazer o zoom do usuário a cada atualização). */
+function FitPoints({ points, focusId }: { points: MapPoint[]; focusId?: string | null }) {
+  const map = useMap()
+  const ids = points.map((point) => point.id).sort().join('|')
+  useEffect(() => {
+    if (focusId || !points.length) return
+    if (points.length === 1) {
+      map.setView([points[0].location.latitude, points[0].location.longitude], 16)
+      return
+    }
+    map.fitBounds(L.latLngBounds(points.map((point) => [point.location.latitude, point.location.longitude] as [number, number])), { padding: [40, 40] })
+  }, [ids, focusId]) // eslint-disable-line react-hooks/exhaustive-deps
+  return null
+}
+
+/** Aproxima a caçamba escolhida na lista e abre o balão dela. */
+function FocusPoint({ points, focusId, markers }: { points: MapPoint[]; focusId?: string | null; markers: React.RefObject<Map<string, L.Marker>> }) {
+  const map = useMap()
+  useEffect(() => {
+    if (!focusId) return
+    const point = points.find((item) => item.id === focusId)
+    if (!point) return
+    map.flyTo([point.location.latitude, point.location.longitude], Math.max(map.getZoom(), 17), { duration: 0.6 })
+    markers.current?.get(focusId)?.openPopup()
+  }, [focusId]) // eslint-disable-line react-hooks/exhaustive-deps
+  return null
+}
+
 function PickOnClick({ onPick }: { onPick: (latitude: number, longitude: number) => void }) {
   useMapEvents({ click: (event) => onPick(event.latlng.lat, event.latlng.lng) })
   return null
@@ -36,13 +65,10 @@ export default function MapLeaflet({
   height,
   onPick,
   defaultCenter,
-}: {
-  points: MapPoint[]
-  height: number
-  /** Modo de escolha: tocar no mapa ou arrastar o marcador define o ponto. */
-  onPick?: (latitude: number, longitude: number) => void
-  defaultCenter?: { latitude: number; longitude: number }
-}) {
+  zoomable,
+  focusId,
+}: JmfMapProps & { height: number }) {
+  const markers = useRef(new Map<string, L.Marker>())
   const icons = useMemo(
     () => ({
       livre: createIcon('livre'),
@@ -57,7 +83,7 @@ export default function MapLeaflet({
     ? [firstPoint.location.latitude, firstPoint.location.longitude]
     : defaultCenter ? [defaultCenter.latitude, defaultCenter.longitude] : [-2.5297, -44.3028]
   const editable = Boolean(onPick)
-  const mapKey = editable ? 'editable' : points
+  const mapKey = editable ? 'editable' : zoomable ? 'zoomable' : points
     .map((point) => `${point.id}:${point.location.latitude}:${point.location.longitude}`)
     .join('|')
 
@@ -66,8 +92,8 @@ export default function MapLeaflet({
       key={mapKey}
       center={center}
       zoom={editable && !points.length ? 12 : points.length > 1 ? 11 : 16}
-      scrollWheelZoom={false}
-      zoomControl={false}
+      scrollWheelZoom={Boolean(zoomable)}
+      zoomControl={Boolean(zoomable || editable)}
       style={{ height, width: '100%' }}
       className="jmf-leaflet-map"
       aria-label="Mapa de localização das caçambas"
@@ -77,12 +103,18 @@ export default function MapLeaflet({
         url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
       />
       {editable ? <PickOnClick onPick={onPick!} /> : null}
+      {zoomable ? <FitPoints points={points} focusId={focusId} /> : null}
+      {zoomable ? <FocusPoint points={points} focusId={focusId} markers={markers} /> : null}
       {editable && firstPoint ? <FollowPoint center={center} zoom={16} /> : null}
       {points.map((point) => (
         <Marker
           key={point.id}
           position={[point.location.latitude, point.location.longitude]}
           icon={icons[point.status]}
+          ref={(marker) => {
+            if (marker) markers.current.set(point.id, marker)
+            else markers.current.delete(point.id)
+          }}
           draggable={editable}
           eventHandlers={editable ? {
             dragend: (event) => {

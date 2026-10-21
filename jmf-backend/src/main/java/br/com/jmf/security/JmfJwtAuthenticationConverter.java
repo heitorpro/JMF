@@ -15,14 +15,18 @@ import java.util.List;
 public class JmfJwtAuthenticationConverter implements Converter<Jwt, AbstractAuthenticationToken> {
 
     private final UserProvisioningService provisioning;
+    private final CurrentUserCache cache;
 
-    public JmfJwtAuthenticationConverter(UserProvisioningService provisioning) {
+    public JmfJwtAuthenticationConverter(UserProvisioningService provisioning, CurrentUserCache cache) {
         this.provisioning = provisioning;
+        this.cache = cache;
     }
 
     @Override
     public AbstractAuthenticationToken convert(Jwt jwt) {
-        CurrentUser user = provisioning.resolve(jwt);
+        String key = jwt.getSubject() + '|' + jwt.getClaimAsString("email") + '|' + jwt.getClaimAsString("name")
+                + '|' + UserProvisioningService.tokenRoles(jwt);
+        CurrentUser user = cache.get(key, () -> provisioning.resolve(jwt));
         List<GrantedAuthority> authorities = new ArrayList<>();
         authorities.add(new SimpleGrantedAuthority("ROLE_" + user.role().name()));
         user.permissions().forEach(p -> authorities.add(new SimpleGrantedAuthority(p.authority())));

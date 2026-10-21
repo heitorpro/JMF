@@ -152,6 +152,7 @@ export function ClientRentalPage({
   }, [addressFields, coordinates])
 
   const [geocoding, setGeocoding] = useState(false)
+  const [geocodeMiss, setGeocodeMiss] = useState(false)
   const geocodeRun = useRef(0)
 
   /** Preenche os campos sem apagar o que o cliente já digitou (a menos que overwrite). */
@@ -170,17 +171,25 @@ export function ClientRentalPage({
   // Se o ponto foi marcado no mapa, pela busca ou pelo GPS, ele é mantido.
   useEffect(() => {
     if (coordinates && coordinates.source !== 'endereco') return
-    if (street.trim().length < 3 && neighborhood.trim().length < 3) return
+    if (street.trim().length < 3 && neighborhood.trim().length < 3) {
+      geocodeRun.current++
+      setGeocoding(false)
+      setGeocodeMiss(false)
+      return
+    }
     const run = ++geocodeRun.current
+    setGeocoding(true)
     const timer = window.setTimeout(async () => {
-      setGeocoding(true)
-      const found = await geocodeAddress({ street, number: effectiveNumber, neighborhood })
+      const found = await geocodeAddress({ street, number: effectiveNumber, neighborhood }).catch(() => null)
       if (run !== geocodeRun.current) return
       setGeocoding(false)
-      if (found && insideServiceArea(found.latitude, found.longitude)) {
+      if (found) {
+        setGeocodeMiss(false)
         setCoordinates({ ...found, source: 'endereco' })
+      } else {
+        setGeocodeMiss(true)
       }
-    }, 800)
+    }, 700)
     return () => window.clearTimeout(timer)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [street, effectiveNumber, neighborhood, coordinates?.source])
@@ -197,6 +206,7 @@ export function ClientRentalPage({
     }
     geocodeRun.current++
     setGeocoding(false)
+    setGeocodeMiss(false)
     setCoordinates({ latitude, longitude, source: 'pin', precision: 'exato' })
     const found = await reverseGeocode(latitude, longitude)
     if (found) fillAddress(found, false)
@@ -231,15 +241,27 @@ export function ClientRentalPage({
     setShowSuggestions(false)
     setPlaceQuery(place.name)
     geocodeRun.current++
+    setGeocoding(true)
+    const details = await place.resolve().catch(() => null)
     setGeocoding(false)
-    setCoordinates({ latitude: place.latitude, longitude: place.longitude, source: 'pin', precision: 'exato' })
-    fillAddress({ street: place.street, number: place.number, neighborhood: place.neighborhood, postalCode: place.postalCode }, true)
+    if (!details || !insideServiceArea(details.latitude, details.longitude)) {
+      toast.error('Não conseguimos localizar esse lugar em São Luís. Tente outro nome ou toque no mapa.')
+      return
+    }
+    setCoordinates({ latitude: details.latitude, longitude: details.longitude, source: 'pin', precision: 'exato' })
+    fillAddress({ street: details.street, number: details.number, neighborhood: details.neighborhood, postalCode: details.postalCode }, true)
     if (place.landmark) setComplement((current) => current.trim() ? current : `Próximo a ${place.name}`.slice(0, 120))
-    if (!place.street || !place.neighborhood) {
-      const found = await reverseGeocode(place.latitude, place.longitude)
+    if (!details.street || !details.neighborhood) {
+      const found = await reverseGeocode(details.latitude, details.longitude)
       if (found) fillAddress(found, false)
     }
     toast.success('Local marcado no mapa. Confira rua, número e bairro e, se precisar, arraste o marcador.')
+  }
+
+  /** Digitar rua, número ou bairro volta a guiar o mapa pelo endereço (o ponto atual fica até o novo ser achado). */
+  const editAddress = (setter: (value: string) => void) => (event: React.ChangeEvent<HTMLInputElement>) => {
+    setter(event.target.value)
+    setCoordinates((current) => (current && current.source !== 'endereco' ? { ...current, source: 'endereco' } : current))
   }
 
   const useTypedAddress = () => {
@@ -337,8 +359,9 @@ export function ClientRentalPage({
   }
 
   const precisionText = !coordinates
-    ? geocoding ? 'Atualizando o mapa…' : 'Digite o endereço, busque um local ou toque no mapa.'
+    ? geocoding ? 'Atualizando o mapa…' : geocodeMiss ? 'Não encontramos esse endereço. Confira a rua e o bairro ou toque no mapa para marcar o local.' : 'Digite o endereço, busque um local ou toque no mapa.'
     : geocoding ? 'Atualizando o mapa…'
+    : geocodeMiss && coordinates.source === 'endereco' ? 'Não encontramos o endereço digitado; o ponto mostrado é o anterior. Arraste o marcador ou toque no mapa.'
     : coordinates.source === 'gps' ? 'Sua localização atual.'
     : coordinates.source === 'pin' ? 'Ponto marcado por você.'
     : coordinates.precision === 'exato' ? 'Localizado pelo endereço digitado.'
@@ -472,19 +495,19 @@ export function ClientRentalPage({
                   <FieldGroup className="mt-4 grid gap-4 sm:grid-cols-2">
                     <Field className="sm:col-span-2">
                       <FieldLabel htmlFor="rental-street">Rua <span className="text-destructive">*</span></FieldLabel>
-                      <Input id="rental-street" autoComplete="address-line1" placeholder="Nome da rua ou avenida" value={street} onChange={(event) => setStreet(event.target.value)} aria-invalid={Boolean(errors.length && !street.trim())} />
+                      <Input id="rental-street" autoComplete="address-line1" placeholder="Nome da rua ou avenida" value={street} onChange={editAddress(setStreet)} aria-invalid={Boolean(errors.length && !street.trim())} />
                     </Field>
                     <Field>
                       <FieldLabel htmlFor="rental-number">Número <span className="text-destructive">*</span></FieldLabel>
-                      <Input id="rental-number" inputMode="numeric" placeholder={noNumber ? 'S/N' : 'Nº'} value={noNumber ? '' : number} disabled={noNumber} onChange={(event) => setNumber(event.target.value)} aria-invalid={Boolean(errors.length && !effectiveNumber)} />
+                      <Input id="rental-number" inputMode="numeric" placeholder={noNumber ? 'S/N' : 'Nº'} value={noNumber ? '' : number} disabled={noNumber} onChange={editAddress(setNumber)} aria-invalid={Boolean(errors.length && !effectiveNumber)} />
                       <label className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
-                        <input type="checkbox" className="size-4 accent-[var(--primary)]" checked={noNumber} onChange={(event) => setNoNumber(event.target.checked)} />
+                        <input type="checkbox" className="size-4 accent-[var(--primary)]" checked={noNumber} onChange={(event) => { setNoNumber(event.target.checked); setCoordinates((current) => (current && current.source !== 'endereco' ? { ...current, source: 'endereco' } : current)) }} />
                         Sem número
                       </label>
                     </Field>
                     <Field>
                       <FieldLabel htmlFor="rental-neighborhood">Bairro <span className="text-destructive">*</span></FieldLabel>
-                      <Input id="rental-neighborhood" autoComplete="address-level3" placeholder="Bairro" value={neighborhood} onChange={(event) => setNeighborhood(event.target.value)} aria-invalid={Boolean(errors.length && !neighborhood.trim())} />
+                      <Input id="rental-neighborhood" autoComplete="address-level3" placeholder="Bairro" value={neighborhood} onChange={editAddress(setNeighborhood)} aria-invalid={Boolean(errors.length && !neighborhood.trim())} />
                     </Field>
                     <Field className="sm:col-span-2">
                       <FieldLabel htmlFor="rental-complement">Complemento / ponto de referência <span className="font-normal text-muted-foreground">(opcional)</span></FieldLabel>
@@ -616,6 +639,7 @@ function TimelineStep({
 export function ClientTrackingPage({
   customerId,
   currentDumpster,
+  focusRequest,
   requests,
   onWhatsApp,
   onRent,
@@ -624,6 +648,8 @@ export function ClientTrackingPage({
 }: {
   customerId: string
   currentDumpster?: Dumpster
+  /** Pedido escolhido no seletor (quando o cliente acompanha um pedido ainda não entregue). */
+  focusRequest?: RentalRequest
   requests: RentalRequest[]
   onWhatsApp: () => void
   onRent: () => void
@@ -631,7 +657,14 @@ export function ClientTrackingPage({
   onCreateRemoval: (reason: string, notes: string) => Promise<void>
 }) {
   const [actionLoading, setActionLoading] = useState<'troca' | 'retirada' | null>(null)
-  const location = currentDumpster?.location ?? requests.find((request) => request.customerId === customerId && !['finalizada', 'cancelada', 'rejeitada'].includes(request.status))?.location
+  const isOpen = (request: RentalRequest) => !['finalizada', 'cancelada', 'rejeitada'].includes(request.status)
+  const customerRequests = requests.filter((request) => request.customerId === customerId)
+  // Com vários aluguéis, acompanha o pedido ligado à caçamba escolhida (troca/retirada) ou o pedido escolhido.
+  const activeRequest = focusRequest
+    ?? (currentDumpster
+      ? customerRequests.find((request) => isOpen(request) && (request.dumpsterId === currentDumpster.id || request.replacementDumpsterId === currentDumpster.id))
+      : customerRequests.find(isOpen))
+  const location = currentDumpster?.location ?? activeRequest?.location
   const mapsUrl = location ? `https://www.google.com/maps/search/?api=1&query=${location.latitude},${location.longitude}` : null
 
   const requestAction = async (action: 'troca' | 'retirada') => {
@@ -647,8 +680,6 @@ export function ClientTrackingPage({
   const openMaps = () => {
     if (mapsUrl) window.open(mapsUrl, '_blank', 'noopener,noreferrer')
   }
-  const customerRequests = requests.filter((request) => request.customerId === customerId)
-  const activeRequest = customerRequests.find((request) => !['finalizada', 'cancelada', 'rejeitada'].includes(request.status))
   const activeStep = !currentDumpster
     ? activeRequest?.status === 'em_entrega' ? 2 : activeRequest?.status === 'aprovada' ? 1 : 0
     : 4

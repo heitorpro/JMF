@@ -221,6 +221,8 @@ interface ApiOverview {
 // ================================================================ mapas rótulo → UUID
 
 const requestUuidByLabel = new Map<string, string>()
+/** Caçamba ("#003") → id do aluguel ativo do cliente, para troca/retirada do aluguel escolhido. */
+const rentalUuidByDumpster = new Map<string, string>()
 const dumpsterUuidByLabel = new Map<string, string>()
 
 function requestUuid(label: string) {
@@ -406,6 +408,11 @@ export async function loadClientData(): Promise<JmfSnapshot> {
     totalRentals: dashboard.totalRentals,
     status: dashboard.customer.status,
   }
+  rentalUuidByDumpster.clear()
+  for (const r of active) {
+    const label = dumpsterLabel(r.dumpsterNumber)
+    if (label) rentalUuidByDumpster.set(label, r.id)
+  }
   // O cliente não acessa a frota: as "caçambas" dele são as das locações ativas.
   const dumpsters: Dumpster[] = active.map((r) => ({
     id: dumpsterLabel(r.dumpsterNumber)!,
@@ -476,7 +483,7 @@ export const httpJmfService: JmfService = {
   async createSwapRequest(input: SwapRequestInput) {
     const created = await jmfFetch<ApiRequest>('/api/client/requests/swap', {
       method: 'POST',
-      body: JSON.stringify({ desiredDate: input.desiredDate.slice(0, 10), reason: input.reason, notes: input.notes || undefined }),
+      body: JSON.stringify({ rentalId: rentalUuidByDumpster.get(input.dumpsterId), desiredDate: input.desiredDate.slice(0, 10), reason: input.reason, notes: input.notes || undefined }),
     })
     return toRentalRequest(created)
   },
@@ -484,7 +491,7 @@ export const httpJmfService: JmfService = {
   async createRemovalRequest(input: RemovalRequestInput) {
     const created = await jmfFetch<ApiRequest>('/api/client/requests/removal', {
       method: 'POST',
-      body: JSON.stringify({ desiredDate: input.desiredDate.slice(0, 10), reason: input.reason, notes: input.notes || undefined }),
+      body: JSON.stringify({ rentalId: rentalUuidByDumpster.get(input.dumpsterId), desiredDate: input.desiredDate.slice(0, 10), reason: input.reason, notes: input.notes || undefined }),
     })
     return toRentalRequest(created)
   },
