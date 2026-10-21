@@ -4,6 +4,7 @@ import br.com.jmf.common.PageResponse;
 import br.com.jmf.security.CurrentUserProvider;
 import br.com.jmf.service.MeService;
 import br.com.jmf.service.NotificationService;
+import br.com.jmf.service.SyncService;
 import br.com.jmf.web.dto.Inputs;
 import br.com.jmf.web.dto.Views;
 import io.swagger.v3.oas.annotations.Operation;
@@ -17,6 +18,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.Map;
 import java.util.UUID;
 
 @Tag(name = "Perfil")
@@ -27,11 +29,20 @@ public class MeController {
     private final CurrentUserProvider currentUser;
     private final MeService me;
     private final NotificationService notifications;
+    private final SyncService sync;
 
-    public MeController(CurrentUserProvider currentUser, MeService me, NotificationService notifications) {
+    public MeController(CurrentUserProvider currentUser, MeService me, NotificationService notifications,
+                        SyncService sync) {
         this.currentUser = currentUser;
         this.me = me;
         this.notifications = notifications;
+        this.sync = sync;
+    }
+
+    @Operation(summary = "Versão dos dados do painel (muda quando algo muda; consulta leve para atualização rápida)")
+    @GetMapping("/sync")
+    public Map<String, String> sync() {
+        return Map.of("version", sync.version(currentUser.get().userId()));
     }
 
     @Operation(summary = "Usuário autenticado, papel, permissões e perfil de cliente vinculado")

@@ -30,8 +30,8 @@ public class CompanySettings {
     @Column(name = "price_30_cents", nullable = false)
     private long price30Cents;
 
-    /** Planos aceitos para locação. */
-    public static final java.util.List<Integer> PLANS = java.util.List.of(7, 15, 30);
+    /** Somente aluguel semanal (7 dias). */
+    public static final java.util.List<Integer> PLANS = java.util.List.of(7);
 
     private String whatsapp;
 

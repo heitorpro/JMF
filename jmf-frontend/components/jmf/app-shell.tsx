@@ -34,6 +34,7 @@ import {
   changeRequestStatus,
   completeSwap as completeSwapApi,
   fetchMe,
+  fetchSyncVersion,
   httpJmfService,
   loadClientData,
   loadManagerData,
@@ -41,6 +42,7 @@ import {
   saveSettings,
   updateDumpsterStatus,
   updateProfile,
+  PENDING_PROFILE_KEY,
   type ApiMe,
   type JmfSnapshot,
 } from '@/lib/jmf/http-service'
@@ -238,12 +240,25 @@ export function JmfAppShell({
     }
   }
 
-  // Descobre o papel no backend, carrega os dados e atualiza a cada 30 segundos.
+  // Descobre o papel no backend, carrega os dados e mantém sincronizado (verificação a cada 3 s).
   useEffect(() => {
     let cancelled = false
     ;(async () => {
       try {
-        const current = await fetchMe()
+        let current = await fetchMe()
+        // Conclui o cadastro se o telefone não chegou ao servidor na hora da criação da conta.
+        try {
+          const raw = localStorage.getItem(PENDING_PROFILE_KEY)
+          if (raw) {
+            const pending = JSON.parse(raw) as { phone?: string; name?: string }
+            if (pending.phone && !current.user.phone) {
+              current = await updateProfile({ phone: pending.phone, name: pending.name || undefined })
+            }
+            localStorage.removeItem(PENDING_PROFILE_KEY)
+          }
+        } catch {
+          // segue sem o telefone; o perfil indica "Não informado"
+        }
         const target: WorkspaceMode = current.user.role === 'gestor' ? 'gestor' : 'cliente'
         if (cancelled) return
         setMe(current)
@@ -256,12 +271,31 @@ export function JmfAppShell({
         if (!cancelled) setReady(true)
       }
     })()
-    // Atualiza a cada 10 s com a aba visível e imediatamente ao voltar para a aba.
-    const timer = window.setInterval(() => {
-      if (document.visibilityState === 'visible') void reload()
-    }, 10_000)
+    // Sincronização rápida: a cada 3 s pergunta ao servidor se algo mudou (resposta mínima) e só então
+    // recarrega os dados. Com a aba em segundo plano, pausa; ao voltar, verifica na hora.
+    let lastVersion = ''
+    let checking = false
+    let lastFullReload = Date.now()
+    const check = async () => {
+      if (checking || cancelled || document.visibilityState !== 'visible') return
+      checking = true
+      try {
+        const version = await fetchSyncVersion()
+        const stale = Date.now() - lastFullReload > 60_000 // segurança: recarrega tudo a cada 1 min
+        if ((lastVersion && version !== lastVersion) || stale) {
+          lastFullReload = Date.now()
+          await reload()
+        }
+        lastVersion = version
+      } catch {
+        // falha momentânea de rede: tenta de novo no próximo ciclo
+      } finally {
+        checking = false
+      }
+    }
+    const timer = window.setInterval(() => void check(), 3_000)
     const onVisible = () => {
-      if (document.visibilityState === 'visible') void reload()
+      if (document.visibilityState === 'visible') void check()
     }
     document.addEventListener('visibilitychange', onVisible)
     return () => {

@@ -37,15 +37,15 @@ public final class Inputs {
     // ------------------------------------------------------------------ endereço
 
     public record LocationInput(
-            @NotBlank(message = "Informe o CEP.")
-            @Pattern(regexp = "^\\d{5}-?\\d{3}$", message = "CEP inválido.") String postalCode,
+            /** Opcional. */
+            @Pattern(regexp = "^(\\d{5}-?\\d{3})?$", message = "CEP inválido.") String postalCode,
             @NotBlank(message = "Informe a rua.") @Size(max = 160) String street,
             @NotBlank(message = "Informe o número.") @Size(max = 20) String number,
             @NotBlank(message = "Informe o bairro.") @Size(max = 120) String neighborhood,
             @Size(max = 120) String complement,
-            @NotBlank(message = "Informe a cidade.") @Size(max = 120) String city,
-            @NotBlank(message = "Informe o estado.")
-            @Pattern(regexp = "^[A-Za-z]{2}$", message = "Use a sigla do estado (ex.: MA).") String state,
+            /** Ignorado: o atendimento é somente em São Luís — MA. */
+            @Size(max = 120) String city,
+            @Size(max = 2) String state,
             @DecimalMin(value = "-90.0", message = "Latitude inválida.")
             @DecimalMax(value = "90.0", message = "Latitude inválida.") Double latitude,
             @DecimalMin(value = "-180.0", message = "Longitude inválida.")

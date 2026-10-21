@@ -133,33 +133,45 @@ class RequestFlowIT extends AbstractIntegrationTest {
     }
 
     @Test
-    void planosDe15E30DiasUsamPrecoDoPlanoETrocaHerdaOPlano() throws Exception {
-        String admin = token("admin-1", "admin");
-        createDumpsters(admin, 1, 2);
+    void somenteAluguelSemanalEhAceito() throws Exception {
         String joao = clientWithPhone("joao");
-
         Map<String, Object> body = rentalBody();
         body.put("periodDays", 15);
-        String id = data(doPost(joao, "/api/client/requests/rental", body)
+        doPost(joao, "/api/client/requests/rental", body).andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void enderecoSemCepUsaSaoLuisMaFixos() throws Exception {
+        String joao = clientWithPhone("joao");
+        Map<String, Object> body = rentalBody();
+        @SuppressWarnings("unchecked")
+        Map<String, Object> location = (Map<String, Object>) body.get("location");
+        location.remove("postalCode");
+        location.put("number", "S/N");
+        location.put("complement", "Ref.: Shopping Rio Anil");
+        location.put("city", "Outra cidade");
+        location.put("state", "PI");
+        doPost(joao, "/api/client/requests/rental", body)
                 .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.data.periodDays").value(15))
-                .andExpect(jsonPath("$.data.priceCents").value(60000))).get("id").asText();
+                .andExpect(jsonPath("$.data.location.city").value("São Luís"))
+                .andExpect(jsonPath("$.data.location.state").value("MA"))
+                .andExpect(jsonPath("$.data.location.number").value("S/N"));
 
-        Map<String, Object> invalid = rentalBody();
-        invalid.put("periodDays", 10);
-        doPost(joao, "/api/client/requests/rental", invalid).andExpect(status().isBadRequest());
+        Map<String, Object> noStreet = rentalBody();
+        @SuppressWarnings("unchecked")
+        Map<String, Object> loc2 = (Map<String, Object>) noStreet.get("location");
+        loc2.remove("street");
+        doPost(joao, "/api/client/requests/rental", noStreet).andExpect(status().isBadRequest());
+    }
 
-        for (String to : new String[]{"aprovada", "em_entrega", "entregue", "em_uso"}) {
-            doPatch(admin, "/api/manager/requests/" + id + "/status", Map.of("status", to)).andExpect(status().isOk());
-        }
-        doGet(joao, "/api/client/rentals?status=ativo")
-                .andExpect(jsonPath("$.data.items[0].periodDays").value(15))
-                .andExpect(jsonPath("$.data.items[0].weeklyPriceCents").value(60000));
-
-        doPost(joao, "/api/client/requests/swap", Map.of("desiredDate", tomorrow(), "reason", "Cheia"))
-                .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.data.periodDays").value(15))
-                .andExpect(jsonPath("$.data.priceCents").value(60000));
+    @Test
+    void versaoDeSincronizacaoMudaQuandoAlgoMuda() throws Exception {
+        String admin = token("admin-1", "admin");
+        String joao = clientWithPhone("joao");
+        String before = data(doGet(admin, "/api/me/sync").andExpect(status().isOk())).get("version").asText();
+        doPost(joao, "/api/client/requests/rental", rentalBody()).andExpect(status().isCreated());
+        String after = data(doGet(admin, "/api/me/sync").andExpect(status().isOk())).get("version").asText();
+        org.junit.jupiter.api.Assertions.assertNotEquals(before, after);
     }
 
     @Test

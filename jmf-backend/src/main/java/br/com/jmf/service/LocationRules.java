@@ -30,7 +30,8 @@ public final class LocationRules {
                                                List<String> allowedStates) {
         Map<String, String> errors = new LinkedHashMap<>();
         String cep = postalCode == null ? "" : postalCode.replaceAll("\\D", "");
-        if (cep.length() != 8 || cep.chars().distinct().count() == 1) {
+        // CEP é opcional; se informado, precisa ser válido.
+        if (!cep.isEmpty() && (cep.length() != 8 || cep.chars().distinct().count() == 1)) {
             errors.put("location.postalCode", "CEP inválido.");
         }
         String uf = state == null ? "" : state.trim().toUpperCase();

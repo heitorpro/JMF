@@ -37,6 +37,9 @@ public class RateLimitFilter extends OncePerRequestFilter {
         this.clock = clock;
     }
 
+    /** Até 2 verificações por segundo por usuário (o painel usa 1 a cada 3 s, por aba). */
+    static final int SYNC_PER_MINUTE = 120;
+
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
         return config == null || !config.enabled() || !request.getRequestURI().startsWith("/api/");
@@ -50,6 +53,7 @@ public class RateLimitFilter extends OncePerRequestFilter {
             case "write" -> config.writesPerMinute();
             case "geocode" -> config.geocodePerMinute();
             case "upload" -> config.uploadsPerMinute();
+            case "sync" -> SYNC_PER_MINUTE;
             default -> config.readsPerMinute();
         };
         long minute = clock.millis() / 60_000;
@@ -75,6 +79,9 @@ public class RateLimitFilter extends OncePerRequestFilter {
         String method = request.getMethod();
         if ("POST".equals(method) && path.equals("/api/client/locations/resolve")) {
             return "geocode";
+        }
+        if ("GET".equals(method) && path.equals("/api/me/sync")) {
+            return "sync"; // verificação leve a cada poucos segundos; limite próprio
         }
         if ("POST".equals(method) && path.equals("/api/client/attachments")) {
             return "upload";

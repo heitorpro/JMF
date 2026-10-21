@@ -148,7 +148,7 @@ public class ClientService {
 
         int periodDays = in.periodDays() == null ? 7 : in.periodDays();
         if (!CompanySettings.PLANS.contains(periodDays)) {
-            throw ApiException.field("periodDays", "Escolha um período de 7, 15 ou 30 dias.");
+            throw ApiException.field("periodDays", "O aluguel é somente semanal (7 dias).");
         }
         long price = settings.current().priceFor(periodDays); // nunca do navegador (regra 8)
         RentalRequest r = new RentalRequest(protocols.next(), RequestType.ALUGUEL,

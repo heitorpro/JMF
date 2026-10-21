@@ -8,6 +8,10 @@ import {
   CalendarDays,
   Check,
   CircleCheck,
+  Crosshair,
+  LoaderCircle,
+  Lock,
+  Search,
   Clock3,
   FileText,
   MapPin,
@@ -39,7 +43,19 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Textarea } from '@/components/ui/textarea'
 import { JmfMap } from '@/components/jmf/map'
 import { formatCurrency, formatDate, toDateInputValue } from '@/lib/jmf/format'
-import { geocodeAddress, lookupCep, reverseGeocode, type ResolvedAddress } from '@/lib/jmf/geocode'
+import {
+  geocodeAddress,
+  insideServiceArea,
+  lookupCep,
+  reverseGeocode,
+  SAO_LUIS_CENTER,
+  searchPlaces,
+  SERVICE_CITY,
+  SERVICE_STATE,
+  type GeocodePrecision,
+  type PlaceSuggestion,
+  type ResolvedAddress,
+} from '@/lib/jmf/geocode'
 import { isValidCpf, isValidPhone, maskCep, maskCpf, maskPhone } from '@/lib/jmf/masks'
 import {
   getLocationLabel,
@@ -58,6 +74,19 @@ import {
 import { CustomerAvatar, EmptyState, PageHeader, PriceBlock, StatusBadge } from './ui'
 
 const fieldError = 'text-xs text-destructive'
+
+/** true em telas largas (xl), onde o mapa fica ao lado do formulário; em telas menores ele aparece logo após o endereço. */
+function useIsWide() {
+  const [wide, setWide] = useState(false)
+  useEffect(() => {
+    const media = window.matchMedia('(min-width: 1280px)')
+    const update = () => setWide(media.matches)
+    update()
+    media.addEventListener('change', update)
+    return () => media.removeEventListener('change', update)
+  }, [])
+  return wide
+}
 
 function buildAddressLabel(address: LocationAddress) {
   if (address.source === 'gps') return `Localização atual · ${address.city} — ${address.state}`
@@ -79,9 +108,8 @@ export function ClientRentalPage({
   onSubmit: (input: RentalRequestInput) => Promise<void>
   onBack: () => void
 }) {
-  const availablePlans = plans.length ? plans : [{ days: 7, price: weeklyPrice }]
-  const [periodDays, setPeriodDays] = useState(availablePlans[0].days)
-  const selectedPrice = availablePlans.find((plan) => plan.days === periodDays)?.price ?? weeklyPrice
+  const periodDays = 7
+  const selectedPrice = plans.find((plan) => plan.days === 7)?.price ?? weeklyPrice
   const [desiredDate, setDesiredDate] = useState(() => {
     const date = new Date()
     date.setDate(date.getDate() + 1)
@@ -89,73 +117,134 @@ export function ClientRentalPage({
   })
   const [street, setStreet] = useState('')
   const [number, setNumber] = useState('')
+  const [noNumber, setNoNumber] = useState(false)
   const [neighborhood, setNeighborhood] = useState('')
   const [postalCode, setPostalCode] = useState('')
   const [complement, setComplement] = useState('')
-  const [city, setCity] = useState('')
-  const [state, setState] = useState('')
   const [details, setDetails] = useState('')
   const [notes, setNotes] = useState('')
   const [attachmentName, setAttachmentName] = useState('')
-  const [coordinates, setCoordinates] = useState<{ latitude: number; longitude: number; source: 'endereco' | 'gps' } | null>(null)
+  /** endereco: calculado pelo texto digitado · gps: localização do aparelho · pin: marcado no mapa / busca. */
+  const [coordinates, setCoordinates] = useState<{ latitude: number; longitude: number; source: 'endereco' | 'gps' | 'pin'; precision: GeocodePrecision } | null>(null)
   const [locationLoading, setLocationLoading] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [submitted, setSubmitted] = useState(false)
   const [errors, setErrors] = useState<string[]>([])
+  const isWide = useIsWide()
 
-  // O endereço completo é sempre obrigatório; o GPS só fornece as coordenadas exatas.
-  const addressComplete = Boolean(
-    street.trim() && number.trim() && neighborhood.trim() && postalCode.trim() && city.trim() && state.trim(),
-  )
+  // Obrigatórios: rua, número (ou "sem número") e bairro. Cidade e UF são fixas (São Luís — MA).
+  const effectiveNumber = noNumber ? 'S/N' : number.trim()
+  const addressComplete = Boolean(street.trim() && effectiveNumber && neighborhood.trim())
 
   const addressFields = useMemo(() => ({
-    postalCode: postalCode.trim(),
+    postalCode: postalCode.replace(/\D/g, ''),
     street: street.trim(),
-    number: number.trim(),
+    number: effectiveNumber,
     neighborhood: neighborhood.trim(),
     complement: complement.trim(),
-    city: city.trim(),
-    state: state.trim().toUpperCase(),
-  }), [city, complement, neighborhood, number, postalCode, state, street])
+    city: SERVICE_CITY,
+    state: SERVICE_STATE,
+  }), [complement, effectiveNumber, neighborhood, postalCode, street])
 
-  // Prévia no mapa assim que houver coordenadas (GPS ou endereço localizado).
   const location = useMemo(() => {
     if (!coordinates) return null
-    return buildLocation({ ...addressFields, source: coordinates.source }, coordinates)
+    return buildLocation({ ...addressFields, source: coordinates.source === 'gps' ? 'gps' : 'endereco' }, coordinates)
   }, [addressFields, coordinates])
 
   const [geocoding, setGeocoding] = useState(false)
-  const lastGeocoded = useRef('')
+  const geocodeRun = useRef(0)
 
-  /** Preenche os campos com o que veio do GPS ou do CEP, sem apagar o que já foi digitado. */
+  /** Preenche os campos sem apagar o que o cliente já digitou (a menos que overwrite). */
   const fillAddress = (found: Partial<ResolvedAddress>, overwrite: boolean) => {
     const pick = (current: string, next?: string) => (next && (overwrite || !current.trim()) ? next : current)
     if (found.postalCode) setPostalCode((current) => maskCep(pick(current, found.postalCode)))
     setStreet((current) => pick(current, found.street))
-    setNumber((current) => pick(current, found.number))
+    if (found.number) {
+      setNumber((current) => pick(current, found.number))
+      setNoNumber(false)
+    }
     setNeighborhood((current) => pick(current, found.neighborhood))
-    setCity((current) => pick(current, found.city))
-    setState((current) => pick(current, found.state))
   }
 
-  // Endereço → mapa: com o endereço completo e sem coordenadas, localiza automaticamente.
+  // Endereço → mapa, ao vivo: enquanto o cliente digita, o ponto é atualizado (com pequeno atraso).
+  // Se o ponto foi marcado no mapa, pela busca ou pelo GPS, ele é mantido.
   useEffect(() => {
-    if (!addressComplete || coordinates) return
-    const key = JSON.stringify(addressFields)
-    if (key === lastGeocoded.current) return
+    if (coordinates && coordinates.source !== 'endereco') return
+    if (street.trim().length < 3 && neighborhood.trim().length < 3) return
+    const run = ++geocodeRun.current
     const timer = window.setTimeout(async () => {
-      lastGeocoded.current = key
       setGeocoding(true)
-      const found = await geocodeAddress(addressFields)
+      const found = await geocodeAddress({ street, number: effectiveNumber, neighborhood })
+      if (run !== geocodeRun.current) return
       setGeocoding(false)
-      if (found) setCoordinates({ ...found, source: 'endereco' })
-    }, 1200)
+      if (found && insideServiceArea(found.latitude, found.longitude)) {
+        setCoordinates({ ...found, source: 'endereco' })
+      }
+    }, 800)
     return () => window.clearTimeout(timer)
-  }, [addressComplete, addressFields, coordinates])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [street, effectiveNumber, neighborhood, coordinates?.source])
 
   const mapPoints = location
-    ? [{ id: 'Ponto solicitado', status: 'livre' as const, customerName: customer.name, location }]
+    ? [{ id: 'Ponto de entrega', status: 'livre' as const, customerName: customer.name, location }]
     : []
+
+  /** Ponto escolhido no mapa (toque ou arraste): completa os campos vazios pelo endereço do ponto. */
+  const pickOnMap = async (latitude: number, longitude: number) => {
+    if (!insideServiceArea(latitude, longitude)) {
+      toast.error('Atendemos somente em São Luís. Marque um ponto dentro da cidade.')
+      return
+    }
+    geocodeRun.current++
+    setGeocoding(false)
+    setCoordinates({ latitude, longitude, source: 'pin', precision: 'exato' })
+    const found = await reverseGeocode(latitude, longitude)
+    if (found) fillAddress(found, false)
+  }
+
+  // ---------------------------------------------------------------- busca por local / referência
+  const [placeQuery, setPlaceQuery] = useState('')
+  const [suggestions, setSuggestions] = useState<PlaceSuggestion[]>([])
+  const [searchingPlaces, setSearchingPlaces] = useState(false)
+  const [showSuggestions, setShowSuggestions] = useState(false)
+  const searchRun = useRef(0)
+
+  useEffect(() => {
+    const q = placeQuery.trim()
+    if (q.length < 3) {
+      setSuggestions([])
+      setSearchingPlaces(false)
+      return
+    }
+    const run = ++searchRun.current
+    setSearchingPlaces(true)
+    const timer = window.setTimeout(async () => {
+      const results = await searchPlaces(q)
+      if (run !== searchRun.current) return
+      setSuggestions(results)
+      setSearchingPlaces(false)
+    }, 450)
+    return () => window.clearTimeout(timer)
+  }, [placeQuery])
+
+  const choosePlace = async (place: PlaceSuggestion) => {
+    setShowSuggestions(false)
+    setPlaceQuery(place.name)
+    geocodeRun.current++
+    setGeocoding(false)
+    setCoordinates({ latitude: place.latitude, longitude: place.longitude, source: 'pin', precision: 'exato' })
+    fillAddress({ street: place.street, number: place.number, neighborhood: place.neighborhood, postalCode: place.postalCode }, true)
+    if (place.landmark) setComplement((current) => current.trim() ? current : `Próximo a ${place.name}`.slice(0, 120))
+    if (!place.street || !place.neighborhood) {
+      const found = await reverseGeocode(place.latitude, place.longitude)
+      if (found) fillAddress(found, false)
+    }
+    toast.success('Local marcado no mapa. Confira rua, número e bairro e, se precisar, arraste o marcador.')
+  }
+
+  const useTypedAddress = () => {
+    setCoordinates(null) // o efeito ao vivo recalcula pelo texto digitado
+  }
 
   const useCurrentLocation = () => {
     if (!navigator.geolocation) {
@@ -166,14 +255,20 @@ export function ClientRentalPage({
     navigator.geolocation.getCurrentPosition(
       async (position) => {
         const { latitude, longitude } = position.coords
-        setCoordinates({ latitude, longitude, source: 'gps' })
-        // GPS → endereço: preenche os campos a partir das coordenadas.
+        if (!insideServiceArea(latitude, longitude)) {
+          toast.error('Sua localização está fora de São Luís. Busque o local ou marque o ponto no mapa.')
+          setLocationLoading(false)
+          return
+        }
+        geocodeRun.current++
+        setGeocoding(false)
+        setCoordinates({ latitude, longitude, source: 'gps', precision: 'exato' })
         const found = await reverseGeocode(latitude, longitude)
         if (found) {
           fillAddress(found, true)
           toast.success('Localização adicionada e endereço preenchido. Confira o número e o complemento.')
         } else {
-          toast.success('Localização adicionada. Complete o endereço manualmente.')
+          toast.success('Localização adicionada. Complete rua, número e bairro.')
         }
         setLocationLoading(false)
       },
@@ -185,29 +280,25 @@ export function ClientRentalPage({
     )
   }
 
-  // CEP → endereço: ao completar 8 dígitos, busca rua, bairro, cidade e UF.
+  // CEP (opcional) → endereço.
   const handleCepChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const masked = maskCep(event.target.value)
     setPostalCode(masked)
-    setCoordinates((current) => current?.source === 'endereco' ? null : current)
     if (masked.replace(/\D/g, '').length === 8) {
       const found = await lookupCep(masked)
-      if (found) fillAddress(found, false)
-      else toast.error('CEP não encontrado. Confira os números ou preencha o endereço.')
+      if (!found) toast.error('CEP não encontrado. Você pode deixar em branco e preencher rua, número e bairro.')
+      else if (found.outsideCity) toast.error('Esse CEP não é de São Luís. Atendemos somente em São Luís — MA.')
+      else fillAddress(found, false)
     }
-  }
-
-  const handleAddressChange = (setter: (value: string) => void) => (event: React.ChangeEvent<HTMLInputElement>) => {
-    setter(event.target.value)
-    // Coordenadas obtidas pelo endereço deixam de valer quando o endereço muda; as do GPS continuam.
-    setCoordinates((current) => current?.source === 'endereco' ? null : current)
   }
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     const nextErrors: string[] = []
     if (!desiredDate) nextErrors.push('Informe a data desejada.')
-    if (!addressComplete) nextErrors.push('Informe o endereço completo: CEP, rua, número, bairro, cidade e UF.')
+    if (!street.trim()) nextErrors.push('Informe a rua (ou busque o local pelo nome).')
+    if (!effectiveNumber) nextErrors.push('Informe o número ou marque "Sem número".')
+    if (!neighborhood.trim()) nextErrors.push('Informe o bairro.')
     if (details.trim().length < 4) nextErrors.push('Descreva brevemente os detalhes da obra.')
     setErrors(nextErrors)
     if (nextErrors.length) return
@@ -216,14 +307,13 @@ export function ClientRentalPage({
     let finalLocation = location
     if (!finalLocation) {
       const found = await geocodeAddress(addressFields)
-      if (!found) {
-        setErrors(['Não conseguimos localizar esse endereço no mapa. Toque em "Usar minha localização" no local da obra ou confira o endereço.'])
+      if (!found || !insideServiceArea(found.latitude, found.longitude)) {
+        setErrors(['Não encontramos esse endereço no mapa. Toque no mapa para marcar o local da obra ou busque um ponto de referência.'])
         setSubmitting(false)
         return
       }
-      const geocoded = { ...found, source: 'endereco' as const }
-      setCoordinates(geocoded)
-      finalLocation = buildLocation({ ...addressFields, source: 'endereco' }, geocoded)
+      setCoordinates({ ...found, source: 'endereco' })
+      finalLocation = buildLocation({ ...addressFields, source: 'endereco' }, found)
     }
 
     try {
@@ -245,6 +335,38 @@ export function ClientRentalPage({
       setSubmitting(false)
     }
   }
+
+  const precisionText = !coordinates
+    ? geocoding ? 'Atualizando o mapa…' : 'Digite o endereço, busque um local ou toque no mapa.'
+    : geocoding ? 'Atualizando o mapa…'
+    : coordinates.source === 'gps' ? 'Sua localização atual.'
+    : coordinates.source === 'pin' ? 'Ponto marcado por você.'
+    : coordinates.precision === 'exato' ? 'Localizado pelo endereço digitado.'
+    : coordinates.precision === 'rua' ? 'Ponto aproximado na rua — arraste o marcador até o local exato.'
+    : 'Ponto aproximado no bairro — arraste o marcador até o local exato.'
+
+  const mapPreview = (
+    <div>
+      <div className="mb-2 flex items-start gap-2 text-xs text-muted-foreground" role="status" aria-live="polite">
+        {geocoding ? <LoaderCircle aria-hidden="true" className="mt-0.5 size-3.5 shrink-0 animate-spin" /> : <MapPin aria-hidden="true" className={`mt-0.5 size-3.5 shrink-0 ${coordinates && coordinates.precision !== 'exato' ? 'text-amber-600' : 'text-primary'}`} />}
+        <span>{precisionText}</span>
+      </div>
+      <JmfMap points={mapPoints} height={isWide ? 260 : 240} className="overflow-hidden rounded-xl" onPick={pickOnMap} defaultCenter={SAO_LUIS_CENTER} />
+      <p className="mt-2 flex items-center gap-1.5 text-[11px] text-muted-foreground"><Crosshair aria-hidden="true" className="size-3.5" />Toque no mapa ou arraste o marcador para ajustar o ponto exato.</p>
+      {coordinates && coordinates.source !== 'endereco' && street.trim() ? (
+        <button type="button" onClick={useTypedAddress} className="mt-1 text-[11px] font-medium text-primary underline-offset-2 hover:underline">Localizar pelo endereço digitado</button>
+      ) : null}
+      {location ? (
+        <>
+          <p className="mt-3 text-[11px] leading-5 text-muted-foreground">{[location.street, location.number].filter(Boolean).join(', ') || 'Rua não informada'} · {location.neighborhood || 'Bairro não informado'} · {SERVICE_CITY}/{SERVICE_STATE}</p>
+          <div className="mt-3 grid gap-2 sm:grid-cols-2">
+            <Button type="button" variant="outline" size="sm" onClick={() => window.open(`https://www.google.com/maps/search/?api=1&query=${location.latitude},${location.longitude}`, '_blank', 'noopener,noreferrer')} className="h-10 gap-2"><ArrowUpRight data-icon="inline-start" /> Abrir no Maps</Button>
+            <Button type="button" variant="outline" size="sm" onClick={() => navigator.clipboard?.writeText(`${location.street}, ${location.number}, ${location.neighborhood}, ${SERVICE_CITY} - ${SERVICE_STATE}`)} className="h-10 gap-2"><MapPin data-icon="inline-start" /> Copiar endereço</Button>
+          </div>
+        </>
+      ) : null}
+    </div>
+  )
 
   if (submitted) {
     return (
@@ -291,23 +413,9 @@ export function ClientRentalPage({
                       <FieldDescription>O agendamento será confirmado pela equipe.</FieldDescription>
                     </Field>
                     <Field>
-                      <FieldLabel id="rental-period-label">Período do aluguel</FieldLabel>
-                      <div role="radiogroup" aria-labelledby="rental-period-label" className="grid grid-cols-3 gap-2">
-                        {availablePlans.map((plan) => (
-                          <button
-                            key={plan.days}
-                            type="button"
-                            role="radio"
-                            aria-checked={periodDays === plan.days}
-                            onClick={() => setPeriodDays(plan.days)}
-                            className={`rounded-xl border px-2 py-2.5 text-center transition-colors ${periodDays === plan.days ? 'border-primary bg-primary/8 text-primary dark:bg-primary/15' : 'border-border hover:bg-muted/60'}`}
-                          >
-                            <span className="block text-sm font-semibold">{plan.days} dias</span>
-                            <span className="mt-0.5 block text-[11px] text-muted-foreground">{formatCurrency(plan.price)}</span>
-                          </button>
-                        ))}
-                      </div>
-                      <FieldDescription>Caçamba padrão. Se encher antes do fim, a troca gera um novo aluguel no mesmo período.</FieldDescription>
+                      <FieldLabel>Período do aluguel</FieldLabel>
+                      <p className="rounded-xl border border-border px-3 py-2.5 text-sm"><span className="font-semibold">7 dias (1 semana)</span> · {formatCurrency(weeklyPrice)}</p>
+                      <FieldDescription>Caçamba padrão. Se encher antes do fim, a troca gera um novo aluguel semanal.</FieldDescription>
                     </Field>
                   </FieldGroup>
                 </FieldSet>
@@ -316,50 +424,94 @@ export function ClientRentalPage({
                   <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                     <div>
                       <FieldLegend>Local da entrega</FieldLegend>
-                      <FieldDescription>Informe o endereço completo ou envie sua localização atual.</FieldDescription>
+                      <FieldDescription>Atendemos somente em São Luís — MA. Use a forma mais fácil para você.</FieldDescription>
                     </div>
                     <Button type="button" variant="outline" size="sm" onClick={useCurrentLocation} disabled={locationLoading} className="h-9 gap-2 self-start sm:self-auto">
                       <Navigation data-icon="inline-start" />
                       {locationLoading ? 'Localizando...' : 'Usar minha localização'}
                     </Button>
                   </div>
-                  {coordinates?.source === 'gps' ? (
-                    <div role="status" className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3.5 py-3 text-xs text-emerald-800 dark:border-emerald-500/20 dark:bg-emerald-500/5 dark:text-emerald-300">
-                      GPS: {coordinates.latitude.toFixed(5)}, {coordinates.longitude.toFixed(5)}
+
+                  <Field className="relative mt-4">
+                    <FieldLabel htmlFor="rental-place">Buscar local ou ponto de referência</FieldLabel>
+                    <div className="relative">
+                      <Search aria-hidden="true" className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
+                      <Input
+                        id="rental-place"
+                        role="combobox"
+                        aria-expanded={showSuggestions && placeQuery.trim().length >= 3}
+                        aria-controls="rental-place-list"
+                        autoComplete="off"
+                        placeholder="Ex.: Shopping Rio Anil, Posto Natureza Turu, escola, rua…"
+                        value={placeQuery}
+                        onChange={(event) => { setPlaceQuery(event.target.value); setShowSuggestions(true) }}
+                        onFocus={() => setShowSuggestions(true)}
+                        onBlur={() => window.setTimeout(() => setShowSuggestions(false), 150)}
+                        onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); if (suggestions[0]) void choosePlace(suggestions[0]) } }}
+                        className="h-10 pl-9"
+                      />
+                      {searchingPlaces ? <LoaderCircle aria-hidden="true" className="absolute top-1/2 right-3 size-4 -translate-y-1/2 animate-spin text-muted-foreground" /> : null}
                     </div>
-                  ) : null}
+                    {showSuggestions && placeQuery.trim().length >= 3 && !searchingPlaces ? (
+                      <ul id="rental-place-list" role="listbox" className="absolute top-full right-0 left-0 z-[1100] mt-1 max-h-72 overflow-auto rounded-xl border border-border bg-popover p-1 shadow-lg">
+                        {suggestions.length ? suggestions.map((place) => (
+                          <li key={place.id} role="option" aria-selected="false">
+                            <button type="button" onMouseDown={(event) => event.preventDefault()} onClick={() => void choosePlace(place)} className="flex w-full items-start gap-2.5 rounded-lg px-2.5 py-2 text-left hover:bg-muted">
+                              <MapPin aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-primary" />
+                              <span><span className="block text-sm font-medium text-foreground">{place.name}</span>{place.description ? <span className="block text-xs text-muted-foreground">{place.description}</span> : null}</span>
+                            </button>
+                          </li>
+                        )) : (
+                          <li className="px-3 py-2.5 text-xs leading-5 text-muted-foreground">Nenhum local encontrado em São Luís. Tente outro nome, preencha rua e bairro abaixo ou toque no mapa para marcar o ponto.</li>
+                        )}
+                      </ul>
+                    ) : null}
+                    <FieldDescription>Não sabe o endereço completo? Busque pelo nome de um lugar conhecido perto da obra.</FieldDescription>
+                  </Field>
+
                   <FieldGroup className="mt-4 grid gap-4 sm:grid-cols-2">
-                    <Field>
-                      <FieldLabel htmlFor="rental-cep">CEP</FieldLabel>
-                      <Input id="rental-cep" autoComplete="postal-code" inputMode="numeric" placeholder="65000-000" maxLength={9} value={postalCode} onChange={handleCepChange} aria-invalid={Boolean(errors.length && !addressComplete)} />
+                    <Field className="sm:col-span-2">
+                      <FieldLabel htmlFor="rental-street">Rua <span className="text-destructive">*</span></FieldLabel>
+                      <Input id="rental-street" autoComplete="address-line1" placeholder="Nome da rua ou avenida" value={street} onChange={(event) => setStreet(event.target.value)} aria-invalid={Boolean(errors.length && !street.trim())} />
                     </Field>
                     <Field>
-                      <FieldLabel htmlFor="rental-street">Rua</FieldLabel>
-                      <Input id="rental-street" autoComplete="address-line1" placeholder="Nome da rua ou avenida" value={street} onChange={handleAddressChange(setStreet)} aria-invalid={Boolean(errors.length && !addressComplete)} />
+                      <FieldLabel htmlFor="rental-number">Número <span className="text-destructive">*</span></FieldLabel>
+                      <Input id="rental-number" inputMode="numeric" placeholder={noNumber ? 'S/N' : 'Nº'} value={noNumber ? '' : number} disabled={noNumber} onChange={(event) => setNumber(event.target.value)} aria-invalid={Boolean(errors.length && !effectiveNumber)} />
+                      <label className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
+                        <input type="checkbox" className="size-4 accent-[var(--primary)]" checked={noNumber} onChange={(event) => setNoNumber(event.target.checked)} />
+                        Sem número
+                      </label>
                     </Field>
                     <Field>
-                      <FieldLabel htmlFor="rental-number">Número</FieldLabel>
-                      <Input id="rental-number" placeholder="Nº ou s/n" value={number} onChange={handleAddressChange(setNumber)} aria-invalid={Boolean(errors.length && !addressComplete)} />
+                      <FieldLabel htmlFor="rental-neighborhood">Bairro <span className="text-destructive">*</span></FieldLabel>
+                      <Input id="rental-neighborhood" autoComplete="address-level3" placeholder="Bairro" value={neighborhood} onChange={(event) => setNeighborhood(event.target.value)} aria-invalid={Boolean(errors.length && !neighborhood.trim())} />
+                    </Field>
+                    <Field className="sm:col-span-2">
+                      <FieldLabel htmlFor="rental-complement">Complemento / ponto de referência <span className="font-normal text-muted-foreground">(opcional)</span></FieldLabel>
+                      <Input id="rental-complement" autoComplete="address-line2" maxLength={120} placeholder="Ex.: em frente ao Posto Natureza, portão azul, lote 5…" value={complement} onChange={(event) => setComplement(event.target.value)} />
                     </Field>
                     <Field>
-                      <FieldLabel htmlFor="rental-neighborhood">Bairro</FieldLabel>
-                      <Input id="rental-neighborhood" autoComplete="address-level3" placeholder="Bairro" value={neighborhood} onChange={handleAddressChange(setNeighborhood)} aria-invalid={Boolean(errors.length && !addressComplete)} />
+                      <FieldLabel htmlFor="rental-cep">CEP <span className="font-normal text-muted-foreground">(opcional)</span></FieldLabel>
+                      <Input id="rental-cep" autoComplete="postal-code" inputMode="numeric" placeholder="65000-000" maxLength={9} value={postalCode} onChange={handleCepChange} />
                     </Field>
-                    <Field>
-                      <FieldLabel htmlFor="rental-complement">Complemento <span className="font-normal text-muted-foreground">(opcional)</span></FieldLabel>
-                      <Input id="rental-complement" autoComplete="address-line2" placeholder="Referência, portão, lote..." value={complement} onChange={(event) => setComplement(event.target.value)} />
-                    </Field>
-                    <div className="grid grid-cols-[1fr_90px] gap-3">
+                    <div className="grid grid-cols-[1fr_80px] gap-3">
                       <Field>
                         <FieldLabel htmlFor="rental-city">Cidade</FieldLabel>
-                        <Input id="rental-city" autoComplete="address-level2" value={city} onChange={handleAddressChange(setCity)} />
+                        <div className="relative"><Input id="rental-city" value={SERVICE_CITY} readOnly disabled aria-readonly="true" className="pr-8" /><Lock aria-hidden="true" className="absolute top-1/2 right-2.5 size-3.5 -translate-y-1/2 text-muted-foreground" /></div>
                       </Field>
                       <Field>
                         <FieldLabel htmlFor="rental-state">UF</FieldLabel>
-                        <Input id="rental-state" autoComplete="address-level1" maxLength={2} value={state} onChange={handleAddressChange(setState)} />
+                        <Input id="rental-state" value={SERVICE_STATE} readOnly disabled aria-readonly="true" />
                       </Field>
                     </div>
                   </FieldGroup>
+
+                  {!isWide ? (
+                    <div className="mt-5 rounded-xl border border-border/70 p-3">
+                      <p className="mb-2 text-sm font-medium text-foreground">Ponto de entrega no mapa</p>
+                      {mapPreview}
+                    </div>
+                  ) : null}
                 </FieldSet>
 
                 <FieldSet>
@@ -421,31 +573,15 @@ export function ClientRentalPage({
               </div>
             </CardContent>
           </Card>
-          <Card className="overflow-hidden border-border/70 shadow-none">
-            <CardHeader className="pb-0">
-              <CardTitle className="text-base">Ponto de entrega</CardTitle>
-              <p className="mt-1 text-sm text-muted-foreground">{location ? buildAddressLabel(location) : geocoding ? 'Localizando o endereço no mapa…' : 'Informe o CEP e o endereço, ou use sua localização, para ver o ponto no mapa.'}</p>
-            </CardHeader>
-            <CardContent className="pt-4">
-              {location ? (
-                <JmfMap points={mapPoints} height={230} className="overflow-hidden rounded-xl" />
-              ) : (
-                <div className="flex h-[230px] flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-border bg-muted/40 text-center">
-                  <MapPin aria-hidden="true" className="size-5 text-muted-foreground" />
-                  <p className="text-xs text-muted-foreground">Adicione o endereço para pré-visualizar o local.</p>
-                </div>
-              )}
-              {location ? (
-                <>
-                  <p className="mt-3 text-[11px] leading-5 text-muted-foreground">{location.street}, {location.number} · {location.neighborhood} · {location.city}/{location.state}</p>
-                  <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                    <Button type="button" variant="outline" size="sm" onClick={() => window.open(`https://www.google.com/maps/search/?api=1&query=${location.latitude},${location.longitude}`, '_blank', 'noopener,noreferrer')} className="h-10 gap-2"><ArrowUpRight data-icon="inline-start" /> Abrir no Maps</Button>
-                    <Button type="button" variant="outline" size="sm" onClick={() => navigator.clipboard?.writeText(`${location.street}, ${location.number}, ${location.city} - ${location.state}`)} className="h-10 gap-2"><MapPin data-icon="inline-start" /> Copiar endereço</Button>
-                  </div>
-                </>
-              ) : null}
-            </CardContent>
-          </Card>
+          {isWide ? (
+            <Card className="overflow-hidden border-border/70 shadow-none">
+              <CardHeader className="pb-0">
+                <CardTitle className="text-base">Ponto de entrega</CardTitle>
+                <p className="mt-1 text-sm text-muted-foreground">{location ? buildAddressLabel(location) : 'O mapa acompanha o endereço enquanto você digita.'}</p>
+              </CardHeader>
+              <CardContent className="pt-4">{mapPreview}</CardContent>
+            </Card>
+          ) : null}
         </div>
       </div>
     </>

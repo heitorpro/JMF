@@ -21,7 +21,7 @@ public class Location extends AuditedEntity {
     @Column(name = "owner_customer_id", updatable = false)
     private UUID ownerCustomerId;
 
-    @Column(name = "postal_code", nullable = false)
+    @Column(name = "postal_code")
     private String postalCode;
 
     @Column(nullable = false)

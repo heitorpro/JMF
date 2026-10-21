@@ -16,14 +16,18 @@ export function JmfMap({
   points,
   height = 360,
   className,
+  onPick,
+  defaultCenter,
 }: {
   points: MapPoint[]
   height?: number
   className?: string
+  onPick?: (latitude: number, longitude: number) => void
+  defaultCenter?: { latitude: number; longitude: number }
 }) {
   return (
     <div className={className} style={{ height }}>
-      <LeafletMap points={points} height={height} />
+      <LeafletMap points={points} height={height} onPick={onPick} defaultCenter={defaultCenter} />
     </div>
   )
 }

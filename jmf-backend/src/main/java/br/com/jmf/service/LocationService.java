@@ -15,13 +15,15 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
 @Service
 public class LocationService {
+
+    public static final String SERVICE_CITY = "São Luís";
+    public static final String SERVICE_STATE = "MA";
 
     private final LocationRepository locations;
     private final GeocodingProvider geocoding;
@@ -45,12 +47,16 @@ public class LocationService {
      */
     public Normalized normalize(Inputs.LocationInput in, boolean requireCoordinates) {
         String postalCode = in.postalCode() == null ? null : in.postalCode().replaceAll("\\D", "");
+        if (postalCode != null && postalCode.isEmpty()) {
+            postalCode = null;
+        }
         String street = TextSanitizer.line(in.street(), 160);
         String number = TextSanitizer.line(in.number(), 20);
         String neighborhood = TextSanitizer.line(in.neighborhood(), 120);
         String complement = TextSanitizer.line(in.complement(), 120);
-        String city = TextSanitizer.line(in.city(), 120);
-        String state = in.state() == null ? null : in.state().trim().toUpperCase(Locale.ROOT);
+        // A JMF atende somente São Luís — MA: cidade e UF são fixas no servidor.
+        String city = SERVICE_CITY;
+        String state = SERVICE_STATE;
 
         Double lat = in.latitude();
         Double lng = in.longitude();

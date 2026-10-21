@@ -1,7 +1,7 @@
 'use client'
 
-import { useMemo } from 'react'
-import { MapContainer, Marker, Popup, TileLayer } from 'react-leaflet'
+import { useEffect, useMemo } from 'react'
+import { MapContainer, Marker, Popup, TileLayer, useMap, useMapEvents } from 'react-leaflet'
 import L from 'leaflet'
 import type { MapPoint } from '@/lib/jmf/types'
 import { DUMPSTER_STATUS_LABELS } from '@/lib/jmf/types'
@@ -17,12 +17,31 @@ function createIcon(status: MapPoint['status']) {
   })
 }
 
+/** Mantém o mapa centralizado no ponto sem recriá-lo (atualização suave enquanto o cliente digita). */
+function FollowPoint({ center, zoom }: { center: [number, number]; zoom: number }) {
+  const map = useMap()
+  useEffect(() => {
+    map.setView(center, Math.max(map.getZoom(), zoom), { animate: true })
+  }, [center[0], center[1]]) // eslint-disable-line react-hooks/exhaustive-deps
+  return null
+}
+
+function PickOnClick({ onPick }: { onPick: (latitude: number, longitude: number) => void }) {
+  useMapEvents({ click: (event) => onPick(event.latlng.lat, event.latlng.lng) })
+  return null
+}
+
 export default function MapLeaflet({
   points,
   height,
+  onPick,
+  defaultCenter,
 }: {
   points: MapPoint[]
   height: number
+  /** Modo de escolha: tocar no mapa ou arrastar o marcador define o ponto. */
+  onPick?: (latitude: number, longitude: number) => void
+  defaultCenter?: { latitude: number; longitude: number }
 }) {
   const icons = useMemo(
     () => ({
@@ -36,8 +55,9 @@ export default function MapLeaflet({
   const firstPoint = points[0]
   const center: [number, number] = firstPoint
     ? [firstPoint.location.latitude, firstPoint.location.longitude]
-    : [-2.5297, -44.3028]
-  const mapKey = points
+    : defaultCenter ? [defaultCenter.latitude, defaultCenter.longitude] : [-2.5297, -44.3028]
+  const editable = Boolean(onPick)
+  const mapKey = editable ? 'editable' : points
     .map((point) => `${point.id}:${point.location.latitude}:${point.location.longitude}`)
     .join('|')
 
@@ -45,7 +65,7 @@ export default function MapLeaflet({
     <MapContainer
       key={mapKey}
       center={center}
-      zoom={points.length > 1 ? 11 : 14}
+      zoom={editable && !points.length ? 12 : points.length > 1 ? 11 : 16}
       scrollWheelZoom={false}
       zoomControl={false}
       style={{ height, width: '100%' }}
@@ -56,11 +76,20 @@ export default function MapLeaflet({
         attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
         url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
       />
+      {editable ? <PickOnClick onPick={onPick!} /> : null}
+      {editable && firstPoint ? <FollowPoint center={center} zoom={16} /> : null}
       {points.map((point) => (
         <Marker
           key={point.id}
           position={[point.location.latitude, point.location.longitude]}
           icon={icons[point.status]}
+          draggable={editable}
+          eventHandlers={editable ? {
+            dragend: (event) => {
+              const { lat, lng } = (event.target as L.Marker).getLatLng()
+              onPick!(lat, lng)
+            },
+          } : undefined}
           title={point.id}
           alt={`Marcador ${point.id}`}
         >

@@ -344,7 +344,7 @@ function activityKind(type: RentalRequest['type'] | undefined, status: RequestSt
 }
 
 const toLocationPayload = (l: LocationAddress) => ({
-  postalCode: l.postalCode,
+  postalCode: l.postalCode || undefined,
   street: l.street,
   number: l.number,
   neighborhood: l.neighborhood,
@@ -494,6 +494,15 @@ export const httpJmfService: JmfService = {
 export function updateProfile(data: { name?: string; phone?: string; cpf?: string }) {
   return jmfFetch<ApiMe>('/api/me', { method: 'PATCH', body: JSON.stringify(data) })
 }
+
+/** Versão dos dados no servidor: muda quando algo muda (consulta leve para atualização rápida). */
+export async function fetchSyncVersion(): Promise<string> {
+  const result = await jmfFetch<{ version: string }>('/api/me/sync')
+  return result.version
+}
+
+/** Telefone/nome do cadastro ainda não confirmados pelo servidor (localStorage). */
+export const PENDING_PROFILE_KEY = 'jmf.pendingProfile'
 
 /** Após o cadastro no Neon Auth, persista o telefone informado no formulário. */
 export async function saveProfilePhone(phone: string, name?: string) {
