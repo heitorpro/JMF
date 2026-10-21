@@ -179,9 +179,9 @@ export function ManagerRequests({
                           return (
                             <TableRow key={request.id}>
                               <TableCell><div className="flex items-center gap-2.5"><span className="flex size-8 items-center justify-center rounded-lg bg-muted text-muted-foreground"><RequestTypeIcon type={request.type} /></span><span><span className="block font-semibold">{request.id}</span><span className="mt-0.5 block text-xs text-muted-foreground">{REQUEST_TYPE_LABELS[request.type]}</span></span></div></TableCell>
-                              <TableCell><div className="flex items-center gap-2.5"><CustomerAvatar name={request.customerName} initials={customer?.initials ?? request.customerName.split(' ').map((part) => part[0]).slice(0, 2).join('')} className="size-8" /><span className="min-w-0"><span className="block max-w-36 truncate text-sm font-medium">{request.customerName}</span><span className="mt-0.5 block text-xs text-muted-foreground">{request.dumpsterId ? `Caçamba ${request.dumpsterId}` : 'Nova locação'}</span></span></div></TableCell>
+                              <TableCell><div className="flex items-center gap-2.5"><CustomerAvatar name={request.customerName} initials={customer?.initials ?? request.customerName.split(' ').map((part) => part[0]).slice(0, 2).join('')} className="size-8" /><span className="min-w-0"><span className="block max-w-36 truncate text-sm font-medium">{request.customerName}</span><span className="mt-0.5 block text-xs text-muted-foreground">{request.replacementDumpsterId ? `Caçamba ${request.replacementDumpsterId} (trocou a ${request.dumpsterId})` : request.dumpsterId ? `Caçamba ${request.dumpsterId}` : 'Nova locação'}</span></span></div></TableCell>
                               <TableCell><span className="block max-w-48 truncate text-sm">{getLocationLabel(request.location)}</span><span className="mt-0.5 block text-xs text-muted-foreground">{formatDate(request.desiredDate)}</span></TableCell>
-                              <TableCell className="font-medium">{request.price ? `${formatCurrency(request.price)}/sem.` : '—'}</TableCell>
+                              <TableCell className="font-medium">{request.price ? `${formatCurrency(request.price)} · ${request.periodDays ?? 7}d` : '—'}</TableCell>
                               <TableCell><StatusBadge status={request.status} /></TableCell>
                               <TableCell><div className="flex justify-end">{renderActions(request)}</div></TableCell>
                             </TableRow>
@@ -202,7 +202,7 @@ export function ManagerRequests({
                               <p className="mt-1 text-xs text-muted-foreground">{REQUEST_TYPE_LABELS[request.type]}</p>
                               <div className="mt-3 flex items-center gap-2"><CustomerAvatar name={request.customerName} initials={customer?.initials ?? 'CL'} className="size-7" /><span className="truncate text-sm font-medium">{request.customerName}</span></div>
                               <p className="mt-3 flex items-center gap-1.5 text-xs text-muted-foreground"><MapPin aria-hidden="true" className="size-3.5" />{getLocationLabel(request.location)}</p>
-                              <div className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground"><CalendarDays aria-hidden="true" className="size-3.5" />{formatDate(request.desiredDate)}<span className="ml-auto font-semibold text-foreground">{request.price ? `${formatCurrency(request.price)}/sem.` : '—'}</span></div>
+                              <div className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground"><CalendarDays aria-hidden="true" className="size-3.5" />{formatDate(request.desiredDate)}<span className="ml-auto font-semibold text-foreground">{request.price ? `${formatCurrency(request.price)} · ${request.periodDays ?? 7}d` : '—'}</span></div>
                               <div className="mt-4 flex justify-end">{renderActions(request)}</div>
                             </div>
                           </div>
@@ -225,7 +225,7 @@ export function ManagerRequests({
           </DialogHeader>
           <div className="rounded-xl border border-border bg-muted/50 p-4 text-sm">
             <div className="flex items-center justify-between gap-3"><span className="text-muted-foreground">Caçamba atual</span><strong>{selectedSwapRequest?.dumpsterId ?? '—'}</strong></div>
-            <div className="mt-2 flex items-center justify-between gap-3"><span className="text-muted-foreground">Nova cobrança</span><strong>{formatCurrency(selectedSwapRequest?.price ?? 300)} / semana</strong></div>
+            <div className="mt-2 flex items-center justify-between gap-3"><span className="text-muted-foreground">Nova cobrança</span><strong>{formatCurrency(selectedSwapRequest?.price ?? 0)} · {selectedSwapRequest?.periodDays ?? 7} dias</strong></div>
             <p className="mt-3 text-xs leading-5 text-muted-foreground">A troca é registrada como um novo aluguel, inclusive quando ocorre no mesmo dia.</p>
           </div>
           {availableDumpsters.length ? (

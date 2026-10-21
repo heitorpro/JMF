@@ -40,7 +40,7 @@ import {
   type JmfCustomer,
   type RentalRecord,
 } from '@/lib/jmf/types'
-import { CustomerAvatar, PageHeader, PriceBlock, StatusBadge } from './ui'
+import { CustomerAvatar, PageHeader, PriceBlock, StatusBadge, periodLabel } from './ui'
 
 const removalReasons = [
   'Caçamba cheia',
@@ -51,18 +51,18 @@ const removalReasons = [
 
 const DAY_MS = 24 * 60 * 60 * 1000
 
-/** Fim do período: data de início + 7 dias (contagem por dias de calendário). */
-function getDueDate(startedAt: string) {
+/** Fim do período: data de início + período contratado (dias de calendário). */
+function getDueDate(startedAt: string, period: number) {
   const start = new Date(`${startedAt.slice(0, 10)}T00:00:00`)
-  return new Date(start.getTime() + 7 * DAY_MS)
+  return new Date(start.getTime() + period * DAY_MS)
 }
 
-function getDaysRemaining(startedAt?: string) {
-  if (!startedAt) return 7
+function getDaysRemaining(startedAt: string | undefined, period: number) {
+  if (!startedAt) return period
   const now = new Date()
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
-  const days = Math.round((getDueDate(startedAt).getTime() - today.getTime()) / DAY_MS)
-  return Math.min(7, Math.max(0, days))
+  const days = Math.round((getDueDate(startedAt, period).getTime() - today.getTime()) / DAY_MS)
+  return Math.min(period, Math.max(0, days))
 }
 
 export function ClientDashboard({
@@ -95,7 +95,8 @@ export function ClientDashboard({
   const [reason, setReason] = useState('Caçamba cheia')
   const [notes, setNotes] = useState('')
   const location = dumpster?.location
-  const daysRemaining = getDaysRemaining(dumpster?.rentalStartedAt)
+  const period = activeRental?.periodDays ?? 7
+  const daysRemaining = getDaysRemaining(dumpster?.rentalStartedAt, period)
   const mapPoints = dumpster?.location
     ? [
         {
@@ -156,8 +157,8 @@ export function ClientDashboard({
                   <p className="mb-1 text-sm text-primary-foreground/75">Caçamba padrão</p>
                 </div>
                 <div className="mt-5">
-                  <p className="text-xs font-medium tracking-[0.12em] text-primary-foreground/60 uppercase">Aluguel semanal</p>
-                  <p className="mt-1 text-2xl font-semibold">{formatCurrency(activeRental?.weeklyPrice ?? rate)}<span className="ml-1 text-sm font-normal text-primary-foreground/70">/ semana</span></p>
+                  <p className="text-xs font-medium tracking-[0.12em] text-primary-foreground/60 uppercase">{period === 7 ? 'Aluguel semanal' : `Aluguel de ${period} dias`}</p>
+                  <p className="mt-1 text-2xl font-semibold">{formatCurrency(activeRental?.weeklyPrice ?? rate)}<span className="ml-1 text-sm font-normal text-primary-foreground/70">{periodLabel(period)}</span></p>
                 </div>
               </div>
 
@@ -202,7 +203,7 @@ export function ClientDashboard({
           <CardHeader className="flex flex-row items-center justify-between gap-3 pb-0">
             <div>
               <CardTitle className="text-base">Resumo do período</CardTitle>
-              <p className="mt-1 text-sm text-muted-foreground">Seu aluguel semanal de 7 dias.</p>
+              <p className="mt-1 text-sm text-muted-foreground">{period === 7 ? 'Seu aluguel semanal de 7 dias.' : `Seu aluguel de ${period} dias.`}</p>
             </div>
             <span className="flex size-10 items-center justify-center rounded-xl bg-primary/8 text-primary dark:bg-primary/15">
               <Clock3 aria-hidden="true" className="size-5" />
@@ -214,14 +215,14 @@ export function ClientDashboard({
                 <p className="text-4xl font-semibold tracking-tight text-foreground">{dumpster ? daysRemaining : '—'}</p>
                 <p className="mt-1 text-sm text-muted-foreground">dias restantes no período</p>
               </div>
-              <p className="pb-1 text-xs font-medium text-muted-foreground">Período de 7 dias</p>
+              <p className="pb-1 text-xs font-medium text-muted-foreground">Período de {period} dias</p>
             </div>
             <div className="mt-5 h-2 overflow-hidden rounded-full bg-muted">
-              <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${dumpster ? Math.max(8, ((7 - daysRemaining) / 7) * 100) : 0}%` }} />
+              <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${dumpster ? Math.max(8, ((period - daysRemaining) / period) * 100) : 0}%` }} />
             </div>
             <div className="mt-4 flex items-center justify-between text-xs text-muted-foreground">
               <span>Início: {dumpster?.rentalStartedAt ? formatDate(dumpster.rentalStartedAt) : '—'}</span>
-              <span>Fim do período: {dumpster?.rentalStartedAt ? formatDate(getDueDate(dumpster.rentalStartedAt).toISOString()) : '—'}</span>
+              <span>Fim do período: {dumpster?.rentalStartedAt ? formatDate(getDueDate(dumpster.rentalStartedAt, period).toISOString()) : '—'}</span>
             </div>
             <Button variant="outline" onClick={onTrack} className="mt-6 h-10 w-full justify-between px-3.5">
               Acompanhar solicitação
@@ -252,7 +253,7 @@ export function ClientDashboard({
               <span>
                 <span className="mb-3 flex size-9 items-center justify-center rounded-xl bg-primary/8 text-primary dark:bg-primary/15"><RefreshCw aria-hidden="true" className="size-4" /></span>
                 <span className="block text-sm font-semibold text-foreground">Trocar caçamba</span>
-                <span className="mt-1 block text-xs leading-5 text-muted-foreground">Nova locação de {formatCurrency(rate)} por semana</span>
+                <span className="mt-1 block text-xs leading-5 text-muted-foreground">Nova locação de {formatCurrency(rate)} · {period} dias</span>
               </span>
               <ChevronRight aria-hidden="true" className="mt-1 size-4 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
             </button>
@@ -344,8 +345,8 @@ export function ClientDashboard({
             <DialogDescription>Uma nova caçamba inicia um novo período de locação, mesmo quando a troca acontece no mesmo dia.</DialogDescription>
           </DialogHeader>
           <div className="rounded-xl border border-border bg-muted/50 p-4">
-            <p className="text-xs font-medium text-muted-foreground">Novo aluguel semanal</p>
-            <PriceBlock price={rate} />
+            <p className="text-xs font-medium text-muted-foreground">Novo aluguel de {period} dias</p>
+            <PriceBlock price={rate} periodDays={period} />
             <p className="mt-2 text-xs leading-5 text-muted-foreground">O aluguel atual será encerrado quando a equipe posicionar a nova caçamba.</p>
           </div>
           {availableCount === 0 ? <p className="text-xs leading-5 text-amber-700 dark:text-amber-300">Não há caçambas livres agora. Sua solicitação será registrada para análise da equipe.</p> : null}
@@ -411,7 +412,7 @@ export function ClientRentalShortcut({
           <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary/8 text-primary dark:bg-primary/15"><Truck aria-hidden="true" className="size-5" /></span>
           <div>
             <p className="text-sm font-semibold text-foreground">Aluguel de caçamba padrão</p>
-            <p className="mt-1 text-sm text-muted-foreground">7 dias de locação · {formatCurrency(weeklyPrice)} por semana</p>
+            <p className="mt-1 text-sm text-muted-foreground">Planos de 7, 15 ou 30 dias · a partir de {formatCurrency(weeklyPrice)}</p>
           </div>
         </div>
         <Button onClick={onRent} disabled={availableCount === 0} className="h-10 shrink-0 gap-2">

@@ -81,6 +81,7 @@ export interface RentalRequest {
   desiredDate: string
   location: LocationAddress
   price: number
+  periodDays?: number
   reason?: string
   details?: string
   notes?: string
@@ -95,14 +96,26 @@ export interface RentalRecord {
   startedAt: string
   endedAt?: string
   location: LocationAddress
+  /** Valor do período contratado (7, 15 ou 30 dias). */
   weeklyPrice: number
+  periodDays: number
+  /** Fim previsto do período (AAAA-MM-DD). */
+  endsAt?: string
   status: 'ativo' | 'encerrado'
   operation: 'locacao' | 'troca'
+}
+
+export interface RentalPlan {
+  days: number
+  price: number
 }
 
 export interface CompanySettings {
   weeklyPrice: number
   periodDays: number
+  price15: number
+  price30: number
+  plans: RentalPlan[]
   whatsapp: string
   email: string
   phone: string
@@ -132,6 +145,8 @@ export interface RentalRequestInput {
   desiredDate: string
   location: LocationAddress
   price: number
+  /** Plano escolhido: 7, 15 ou 30 dias. */
+  periodDays?: number
   details: string
   notes?: string
   attachmentName?: string

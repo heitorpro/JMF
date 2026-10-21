@@ -45,6 +45,9 @@ public class Rental extends AuditedEntity {
     @Column(name = "weekly_price_cents", nullable = false)
     private long weeklyPriceCents;
 
+    @Column(name = "period_days", nullable = false)
+    private int periodDays = 7;
+
     @Column(nullable = false)
     private RentalStatus status = RentalStatus.ATIVO;
 
@@ -100,6 +103,19 @@ public class Rental extends AuditedEntity {
 
     public long getWeeklyPriceCents() {
         return weeklyPriceCents;
+    }
+
+    public int getPeriodDays() {
+        return periodDays;
+    }
+
+    public void setPeriodDays(int periodDays) {
+        this.periodDays = periodDays;
+    }
+
+    /** Fim previsto do período contratado. */
+    public LocalDate endsAt() {
+        return startedAt.plusDays(periodDays);
     }
 
     public RentalStatus getStatus() {

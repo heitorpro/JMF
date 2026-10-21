@@ -15,7 +15,9 @@ import br.com.jmf.domain.model.RentalRequest;
 import br.com.jmf.domain.model.RentalStatus;
 import br.com.jmf.domain.model.RequestStatus;
 import br.com.jmf.domain.model.RequestType;
+import br.com.jmf.domain.model.DumpsterStatus;
 import br.com.jmf.domain.repository.CustomerRepository;
+import br.com.jmf.domain.repository.DumpsterRepository;
 import br.com.jmf.domain.repository.RentalRepository;
 import br.com.jmf.domain.repository.RentalRequestRepository;
 import br.com.jmf.domain.repository.RequestEventRepository;
@@ -43,6 +45,7 @@ public class ClientService {
     private final RentalRequestRepository requests;
     private final RentalRepository rentals;
     private final RequestEventRepository events;
+    private final DumpsterRepository dumpsters;
     private final LocationService locations;
     private final SettingsService settings;
     private final AttachmentService attachments;
@@ -53,13 +56,15 @@ public class ClientService {
     private final Clock clock;
 
     public ClientService(CustomerRepository customers, RentalRequestRepository requests, RentalRepository rentals,
-                         RequestEventRepository events, LocationService locations, SettingsService settings,
+                         RequestEventRepository events, DumpsterRepository dumpsters, LocationService locations,
+                         SettingsService settings,
                          AttachmentService attachments, AuditService audit, NotificationService notifications,
                          ProtocolGenerator protocols, JmfProperties props, Clock clock) {
         this.customers = customers;
         this.requests = requests;
         this.rentals = rentals;
         this.events = events;
+        this.dumpsters = dumpsters;
         this.locations = locations;
         this.settings = settings;
         this.attachments = attachments;
@@ -88,8 +93,9 @@ public class ClientService {
         CompanySettings s = settings.current();
         return new Views.ClientDashboardView(Mappers.customerProfile(customer), active, openRequests, totalRentals,
                 notifications.unreadCount(user.userId()),
-                new Views.PricingView(s.getWeeklyPriceCents(), s.getPeriodDays()),
-                new Views.SettingsContactView(s.getWhatsapp(), s.getEmail(), s.getPhone(), s.getAddress()));
+                new Views.PricingView(s.getWeeklyPriceCents(), s.getPeriodDays(), Mappers.plans(s)),
+                new Views.SettingsContactView(s.getWhatsapp(), s.getEmail(), s.getPhone(), s.getAddress()),
+                Math.max(0, dumpsters.countByStatus(DumpsterStatus.LIVRE) - requests.findReservedDumpsterIds().size()));
     }
 
     @Transactional(readOnly = true)
@@ -140,9 +146,14 @@ public class ClientService {
         LocationService.Normalized normalized = locations.normalize(in.location(), true);
         Location location = locations.persist(normalized, customer.getId());
 
-        long price = settings.current().getWeeklyPriceCents(); // nunca do navegador (regra 8)
+        int periodDays = in.periodDays() == null ? 7 : in.periodDays();
+        if (!CompanySettings.PLANS.contains(periodDays)) {
+            throw ApiException.field("periodDays", "Escolha um período de 7, 15 ou 30 dias.");
+        }
+        long price = settings.current().priceFor(periodDays); // nunca do navegador (regra 8)
         RentalRequest r = new RentalRequest(protocols.next(), RequestType.ALUGUEL,
                 RequestStateMachine.initialStatus(RequestType.ALUGUEL), customer, location, date, price, user.userId());
+        r.setPeriodDays(periodDays);
         r.setDetails(TextSanitizer.multiline(in.details(), 2000));
         r.setNotes(TextSanitizer.multiline(in.notes(), 2000));
         if (r.getDetails() == null) {
@@ -177,11 +188,13 @@ public class ClientService {
         if (requests.hasOpenSwapOrRemoval(rental.getDumpster().getId())) {
             throw ApiException.conflict("Já existe uma troca ou retirada em aberto para esta caçamba.");
         }
-        long price = type == RequestType.TROCA ? settings.current().getWeeklyPriceCents() : 0L;
+        // A troca é um novo aluguel no mesmo plano da locação atual, pelo preço vigente.
+        long price = type == RequestType.TROCA ? settings.current().priceFor(rental.getPeriodDays()) : 0L;
         // Endereço e caçamba vêm da locação persistida, não do navegador.
         RentalRequest r = new RentalRequest(protocols.next(), type, RequestStateMachine.initialStatus(type), customer,
                 rental.getLocation(), date, price, user.userId());
         r.setDumpster(rental.getDumpster());
+        r.setPeriodDays(rental.getPeriodDays());
         r.setReason(TextSanitizer.line(reason, 500));
         r.setNotes(TextSanitizer.multiline(notes, 2000));
         if (r.getReason() == null) {
@@ -252,6 +265,9 @@ public class ClientService {
         Customer c = customer(user);
         if (c.getStatus() != CustomerStatus.ATIVO) {
             throw new ApiException(ErrorCode.CUSTOMER_INACTIVE);
+        }
+        if (c.getPhone() == null && user.phone() != null) {
+            c.setPhone(user.phone()); // recupera o telefone salvo no perfil do usuário
         }
         if (c.getPhone() == null) {
             throw new ApiException(ErrorCode.PHONE_REQUIRED);

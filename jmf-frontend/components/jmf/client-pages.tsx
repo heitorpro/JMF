@@ -14,7 +14,9 @@ import {
   MessageCircle,
   Navigation,
   Paperclip,
+  Pencil,
   RefreshCw,
+  Save,
   ShieldCheck,
   Truck,
 } from 'lucide-react'
@@ -38,13 +40,14 @@ import { Textarea } from '@/components/ui/textarea'
 import { JmfMap } from '@/components/jmf/map'
 import { formatCurrency, formatDate, toDateInputValue } from '@/lib/jmf/format'
 import { geocodeAddress, lookupCep, reverseGeocode, type ResolvedAddress } from '@/lib/jmf/geocode'
-import { maskCep } from '@/lib/jmf/masks'
+import { isValidCpf, isValidPhone, maskCep, maskCpf, maskPhone } from '@/lib/jmf/masks'
 import {
   getLocationLabel,
   buildLocation,
   REQUEST_STATUS_LABELS,
   REQUEST_TYPE_LABELS,
   type CompanySettings,
+  type RentalPlan,
   type Dumpster,
   type JmfCustomer,
   type LocationAddress,
@@ -64,16 +67,21 @@ function buildAddressLabel(address: LocationAddress) {
 export function ClientRentalPage({
   customer,
   weeklyPrice,
+  plans = [],
   availableCount,
   onSubmit,
   onBack,
 }: {
   customer: JmfCustomer
   weeklyPrice: number
+  plans?: RentalPlan[]
   availableCount: number
   onSubmit: (input: RentalRequestInput) => Promise<void>
   onBack: () => void
 }) {
+  const availablePlans = plans.length ? plans : [{ days: 7, price: weeklyPrice }]
+  const [periodDays, setPeriodDays] = useState(availablePlans[0].days)
+  const selectedPrice = availablePlans.find((plan) => plan.days === periodDays)?.price ?? weeklyPrice
   const [desiredDate, setDesiredDate] = useState(() => {
     const date = new Date()
     date.setDate(date.getDate() + 1)
@@ -224,7 +232,8 @@ export function ClientRentalPage({
         customerName: customer.name,
         desiredDate,
         location: finalLocation,
-        price: weeklyPrice,
+        price: selectedPrice,
+        periodDays,
         details: details.trim(),
         notes: notes.trim(),
         attachmentName,
@@ -282,9 +291,23 @@ export function ClientRentalPage({
                       <FieldDescription>O agendamento será confirmado pela equipe.</FieldDescription>
                     </Field>
                     <Field>
-                      <FieldLabel htmlFor="rental-model">Modelo</FieldLabel>
-                      <Input id="rental-model" value="Caçamba padrão" readOnly aria-readonly="true" />
-                      <FieldDescription>Um único modelo disponível para locação.</FieldDescription>
+                      <FieldLabel id="rental-period-label">Período do aluguel</FieldLabel>
+                      <div role="radiogroup" aria-labelledby="rental-period-label" className="grid grid-cols-3 gap-2">
+                        {availablePlans.map((plan) => (
+                          <button
+                            key={plan.days}
+                            type="button"
+                            role="radio"
+                            aria-checked={periodDays === plan.days}
+                            onClick={() => setPeriodDays(plan.days)}
+                            className={`rounded-xl border px-2 py-2.5 text-center transition-colors ${periodDays === plan.days ? 'border-primary bg-primary/8 text-primary dark:bg-primary/15' : 'border-border hover:bg-muted/60'}`}
+                          >
+                            <span className="block text-sm font-semibold">{plan.days} dias</span>
+                            <span className="mt-0.5 block text-[11px] text-muted-foreground">{formatCurrency(plan.price)}</span>
+                          </button>
+                        ))}
+                      </div>
+                      <FieldDescription>Caçamba padrão. Se encher antes do fim, a troca gera um novo aluguel no mesmo período.</FieldDescription>
                     </Field>
                   </FieldGroup>
                 </FieldSet>
@@ -376,13 +399,13 @@ export function ClientRentalPage({
               <div className="flex items-start justify-between gap-4">
                 <div>
                   <CardTitle className="text-base">Aluguel de caçamba</CardTitle>
-                  <p className="mt-1 text-sm text-muted-foreground">Caçamba padrão · período de 7 dias</p>
+                  <p className="mt-1 text-sm text-muted-foreground">Caçamba padrão · período de {periodDays} dias</p>
                 </div>
                 <span className="flex size-10 items-center justify-center rounded-xl bg-primary/8 text-primary dark:bg-primary/15"><Truck aria-hidden="true" className="size-5" /></span>
               </div>
             </CardHeader>
             <CardContent className="pt-5">
-              <PriceBlock price={weeklyPrice} />
+              <PriceBlock price={selectedPrice} periodDays={periodDays} />
               <div className="mt-4 flex items-center justify-between rounded-xl bg-muted/60 px-3.5 py-3 text-sm">
                 <span className="text-muted-foreground">Caçambas disponíveis</span>
                 <span className="font-semibold text-foreground">{availableCount} de 30</span>
@@ -620,11 +643,11 @@ export function ClientHistoryPage({
             <>
               <div className="hidden md:block">
                 <Table>
-                  <TableHeader><TableRow><TableHead>Operação</TableHead><TableHead>Caçamba</TableHead><TableHead>Data</TableHead><TableHead>Local</TableHead><TableHead>Valor semanal</TableHead><TableHead>Status</TableHead></TableRow></TableHeader>
+                  <TableHeader><TableRow><TableHead>Operação</TableHead><TableHead>Caçamba</TableHead><TableHead>Data</TableHead><TableHead>Local</TableHead><TableHead>Valor</TableHead><TableHead>Status</TableHead></TableRow></TableHeader>
                   <TableBody>
                     {rows.map((rental) => (
                       <TableRow key={rental.id}>
-                        <TableCell><div><p className="font-medium text-foreground">{rental.operation === 'troca' ? 'Novo aluguel (troca)' : 'Aluguel semanal'}</p><p className="mt-1 text-xs text-muted-foreground">{rental.id}</p></div></TableCell>
+                        <TableCell><div><p className="font-medium text-foreground">{rental.operation === 'troca' ? `Novo aluguel (troca) · ${rental.periodDays} dias` : `Aluguel de ${rental.periodDays} dias`}</p><p className="mt-1 text-xs text-muted-foreground">{rental.id}</p></div></TableCell>
                         <TableCell className="font-semibold">{rental.dumpsterId}</TableCell>
                         <TableCell>{formatDate(rental.startedAt)}</TableCell>
                         <TableCell className="max-w-44 truncate">{rental.location.label}</TableCell>
@@ -638,8 +661,8 @@ export function ClientHistoryPage({
               <div className="flex flex-col gap-3 md:hidden">
                 {rows.map((rental) => (
                   <article key={rental.id} className="rounded-xl border border-border p-4">
-                    <div className="flex items-start justify-between gap-3"><div><p className="text-sm font-semibold">{rental.dumpsterId} <span className="font-normal text-muted-foreground">· {rental.id}</span></p><p className="mt-1 text-xs text-muted-foreground">{rental.operation === 'troca' ? 'Novo aluguel (troca)' : 'Aluguel semanal'}</p></div><Badge variant={rental.status === 'ativo' ? 'default' : 'secondary'}>{rental.status === 'ativo' ? 'Em andamento' : 'Finalizado'}</Badge></div>
-                    <div className="mt-4 grid grid-cols-2 gap-3 text-xs"><div><p className="text-muted-foreground">Início</p><p className="mt-1 font-medium">{formatDate(rental.startedAt)}</p></div><div><p className="text-muted-foreground">Valor semanal</p><p className="mt-1 font-medium">{formatCurrency(rental.weeklyPrice)}</p></div><div className="col-span-2"><p className="text-muted-foreground">Local</p><p className="mt-1 font-medium">{rental.location.label}</p></div></div>
+                    <div className="flex items-start justify-between gap-3"><div><p className="text-sm font-semibold">{rental.dumpsterId} <span className="font-normal text-muted-foreground">· {rental.id}</span></p><p className="mt-1 text-xs text-muted-foreground">{rental.operation === 'troca' ? `Novo aluguel (troca) · ${rental.periodDays} dias` : `Aluguel de ${rental.periodDays} dias`}</p></div><Badge variant={rental.status === 'ativo' ? 'default' : 'secondary'}>{rental.status === 'ativo' ? 'Em andamento' : 'Finalizado'}</Badge></div>
+                    <div className="mt-4 grid grid-cols-2 gap-3 text-xs"><div><p className="text-muted-foreground">Início</p><p className="mt-1 font-medium">{formatDate(rental.startedAt)}</p></div><div><p className="text-muted-foreground">Valor do período</p><p className="mt-1 font-medium">{formatCurrency(rental.weeklyPrice)}</p></div><div className="col-span-2"><p className="text-muted-foreground">Local</p><p className="mt-1 font-medium">{rental.location.label}</p></div></div>
                   </article>
                 ))}
               </div>
@@ -651,8 +674,55 @@ export function ClientHistoryPage({
   )
 }
 
-export function ClientProfilePage({ customer, variant = 'cliente' }: { customer: JmfCustomer; variant?: 'cliente' | 'gestor' }) {
+export interface ProfileUpdate {
+  name: string
+  phone: string
+  cpf?: string
+}
+
+export function ClientProfilePage({
+  customer,
+  variant = 'cliente',
+  onSave,
+}: {
+  customer: JmfCustomer
+  variant?: 'cliente' | 'gestor'
+  onSave?: (data: ProfileUpdate) => Promise<void>
+}) {
   const isManager = variant === 'gestor'
+  const [editing, setEditing] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [name, setName] = useState(customer.name)
+  const [phone, setPhone] = useState(maskPhone(customer.phone))
+  const [cpf, setCpf] = useState('')
+  const [formError, setFormError] = useState<string | null>(null)
+
+  const startEditing = () => {
+    setName(customer.name)
+    setPhone(maskPhone(customer.phone))
+    setCpf('')
+    setFormError(null)
+    setEditing(true)
+  }
+
+  const handleSave = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    if (name.trim().length < 2) return setFormError('Informe seu nome completo.')
+    if (!isValidPhone(phone)) return setFormError('Informe um telefone válido com DDD, ex.: (98) 98888-8888.')
+    if (!isManager && cpf && !isValidCpf(cpf)) return setFormError('CPF inválido. Confira os números.')
+    if (!onSave) return
+    setSaving(true)
+    setFormError(null)
+    try {
+      await onSave({ name: name.trim(), phone, cpf: !isManager && cpf ? cpf : undefined })
+      setEditing(false)
+    } catch {
+      // a mensagem de erro já é exibida pelo app
+    } finally {
+      setSaving(false)
+    }
+  }
+
   return (
     <>
       <PageHeader eyebrow={isManager ? 'Área do gestor' : 'Área do cliente'} title="Meu perfil" description={isManager ? 'Seus dados de acesso à operação da JMF.' : 'Seus dados de contato para solicitações e atualizações da JMF.'} />
@@ -672,14 +742,52 @@ export function ClientProfilePage({ customer, variant = 'cliente' }: { customer:
           </CardContent>
         </Card>
         <Card className="border-border/70 shadow-none">
-          <CardHeader className="border-b border-border/70 pb-4"><CardTitle className="text-base">Dados cadastrados</CardTitle><p className="mt-1 text-sm text-muted-foreground">Mantenha telefone e e-mail atualizados para receber avisos sobre o aluguel.</p></CardHeader>
-          <CardContent className="grid gap-x-6 gap-y-5 pt-5 sm:grid-cols-2">
-            <div><p className="text-xs font-medium text-muted-foreground">Nome completo</p><p className="mt-1.5 text-sm font-medium">{customer.name}</p></div>
-            {isManager ? null : <div><p className="text-xs font-medium text-muted-foreground">CPF</p><p className="mt-1.5 text-sm font-medium">{customer.cpf || 'Não informado'}</p></div>}
-            <div><p className="text-xs font-medium text-muted-foreground">Telefone</p><p className="mt-1.5 text-sm font-medium">{customer.phone || 'Não informado'}</p></div>
-            <div><p className="text-xs font-medium text-muted-foreground">E-mail</p><p className="mt-1.5 text-sm font-medium">{customer.email}</p></div>
-            <div className="sm:col-span-2"><div className="flex items-start gap-2 rounded-xl bg-muted/60 p-3 text-xs leading-5 text-muted-foreground"><ShieldCheck aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-primary" /> Seus dados são utilizados para gerenciar solicitações e comunicações sobre locações.</div></div>
-          </CardContent>
+          <CardHeader className="flex flex-row items-start justify-between gap-3 border-b border-border/70 pb-4">
+            <div>
+              <CardTitle className="text-base">Dados cadastrados</CardTitle>
+              <p className="mt-1 text-sm text-muted-foreground">Mantenha telefone e e-mail atualizados para receber avisos sobre o aluguel.</p>
+            </div>
+            {!editing && onSave ? <Button variant="outline" size="sm" onClick={startEditing} className="shrink-0 gap-1.5"><Pencil data-icon="inline-start" />Editar</Button> : null}
+          </CardHeader>
+          {editing ? (
+            <CardContent className="pt-5">
+              <form onSubmit={handleSave} className="grid gap-x-6 gap-y-4 sm:grid-cols-2">
+                <Field className="sm:col-span-2">
+                  <FieldLabel htmlFor="profile-name">Nome completo</FieldLabel>
+                  <Input id="profile-name" autoComplete="name" value={name} onChange={(event) => setName(event.target.value)} maxLength={120} required />
+                </Field>
+                <Field>
+                  <FieldLabel htmlFor="profile-phone">Telefone</FieldLabel>
+                  <Input id="profile-phone" type="tel" inputMode="numeric" autoComplete="tel-national" placeholder="(98) 98888-8888" value={phone} onChange={(event) => setPhone(maskPhone(event.target.value))} maxLength={15} required />
+                </Field>
+                {isManager ? null : (
+                  <Field>
+                    <FieldLabel htmlFor="profile-cpf">CPF <span className="font-normal text-muted-foreground">(opcional)</span></FieldLabel>
+                    <Input id="profile-cpf" inputMode="numeric" placeholder={customer.cpf || '000.000.000-00'} value={cpf} onChange={(event) => setCpf(maskCpf(event.target.value))} maxLength={14} />
+                    <FieldDescription>Deixe em branco para manter o atual.</FieldDescription>
+                  </Field>
+                )}
+                <Field className="sm:col-span-2">
+                  <FieldLabel htmlFor="profile-email">E-mail</FieldLabel>
+                  <Input id="profile-email" value={customer.email} readOnly aria-readonly="true" />
+                  <FieldDescription>O e-mail é o seu login e não pode ser alterado aqui.</FieldDescription>
+                </Field>
+                {formError ? <p role="alert" className="text-sm text-destructive sm:col-span-2">{formError}</p> : null}
+                <div className="flex justify-end gap-2 sm:col-span-2">
+                  <Button type="button" variant="outline" onClick={() => setEditing(false)} disabled={saving}>Cancelar</Button>
+                  <Button type="submit" disabled={saving} className="gap-1.5"><Save data-icon="inline-start" />{saving ? 'Salvando…' : 'Salvar alterações'}</Button>
+                </div>
+              </form>
+            </CardContent>
+          ) : (
+            <CardContent className="grid gap-x-6 gap-y-5 pt-5 sm:grid-cols-2">
+              <div><p className="text-xs font-medium text-muted-foreground">Nome completo</p><p className="mt-1.5 text-sm font-medium">{customer.name}</p></div>
+              {isManager ? null : <div><p className="text-xs font-medium text-muted-foreground">CPF</p><p className="mt-1.5 text-sm font-medium">{customer.cpf || 'Não informado'}</p></div>}
+              <div><p className="text-xs font-medium text-muted-foreground">Telefone</p><p className="mt-1.5 text-sm font-medium">{customer.phone || <span className="text-destructive">Não informado — clique em Editar</span>}</p></div>
+              <div><p className="text-xs font-medium text-muted-foreground">E-mail</p><p className="mt-1.5 text-sm font-medium">{customer.email}</p></div>
+              <div className="sm:col-span-2"><div className="flex items-start gap-2 rounded-xl bg-muted/60 p-3 text-xs leading-5 text-muted-foreground"><ShieldCheck aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-primary" /> Seus dados são utilizados para gerenciar solicitações e comunicações sobre locações.</div></div>
+            </CardContent>
+          )}
         </Card>
       </div>
     </>

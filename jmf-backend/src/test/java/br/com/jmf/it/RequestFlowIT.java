@@ -133,6 +133,36 @@ class RequestFlowIT extends AbstractIntegrationTest {
     }
 
     @Test
+    void planosDe15E30DiasUsamPrecoDoPlanoETrocaHerdaOPlano() throws Exception {
+        String admin = token("admin-1", "admin");
+        createDumpsters(admin, 1, 2);
+        String joao = clientWithPhone("joao");
+
+        Map<String, Object> body = rentalBody();
+        body.put("periodDays", 15);
+        String id = data(doPost(joao, "/api/client/requests/rental", body)
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.periodDays").value(15))
+                .andExpect(jsonPath("$.data.priceCents").value(60000))).get("id").asText();
+
+        Map<String, Object> invalid = rentalBody();
+        invalid.put("periodDays", 10);
+        doPost(joao, "/api/client/requests/rental", invalid).andExpect(status().isBadRequest());
+
+        for (String to : new String[]{"aprovada", "em_entrega", "entregue", "em_uso"}) {
+            doPatch(admin, "/api/manager/requests/" + id + "/status", Map.of("status", to)).andExpect(status().isOk());
+        }
+        doGet(joao, "/api/client/rentals?status=ativo")
+                .andExpect(jsonPath("$.data.items[0].periodDays").value(15))
+                .andExpect(jsonPath("$.data.items[0].weeklyPriceCents").value(60000));
+
+        doPost(joao, "/api/client/requests/swap", Map.of("desiredDate", tomorrow(), "reason", "Cheia"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.periodDays").value(15))
+                .andExpect(jsonPath("$.data.priceCents").value(60000));
+    }
+
+    @Test
     void rejeicaoECancelamento() throws Exception {
         String admin = token("admin-1", "admin");
         String joao = clientWithPhone("joao");

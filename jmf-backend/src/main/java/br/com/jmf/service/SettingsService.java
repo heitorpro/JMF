@@ -51,6 +51,12 @@ public class SettingsService {
         if (in.periodDays() != null) {
             s.setPeriodDays(in.periodDays());
         }
+        if (in.price15Cents() != null) {
+            s.setPrice15Cents(in.price15Cents());
+        }
+        if (in.price30Cents() != null) {
+            s.setPrice30Cents(in.price30Cents());
+        }
         if (in.whatsapp() != null) {
             s.setWhatsapp(in.whatsapp().isBlank() ? null : PhoneNormalizer.require(in.whatsapp(), "whatsapp"));
         }
@@ -76,6 +82,8 @@ public class SettingsService {
         Map<String, Object> m = new HashMap<>();
         m.put("weeklyPriceCents", s.getWeeklyPriceCents());
         m.put("periodDays", s.getPeriodDays());
+        m.put("price15Cents", s.getPrice15Cents());
+        m.put("price30Cents", s.getPrice30Cents());
         m.put("whatsapp", s.getWhatsapp());
         m.put("email", s.getEmail());
         m.put("phone", s.getPhone());

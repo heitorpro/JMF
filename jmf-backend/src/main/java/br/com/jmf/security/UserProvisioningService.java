@@ -90,6 +90,9 @@ public class UserProvisioningService {
                     customer.setPhone(user.getPhone());
                 }
             }
+            if (customer.getPhone() == null && user.getPhone() != null) {
+                customer.setPhone(user.getPhone()); // mantém os dois cadastros sincronizados
+            }
             customerId = customer.getId();
         }
 

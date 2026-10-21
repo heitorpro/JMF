@@ -40,6 +40,7 @@ import {
   markNotificationRead,
   saveSettings,
   updateDumpsterStatus,
+  updateProfile,
   type ApiMe,
   type JmfSnapshot,
 } from '@/lib/jmf/http-service'
@@ -58,9 +59,9 @@ import {
   type RentalRequest,
   type RentalRequestInput,
   type WorkspaceMode,
-} from '@/lib/jmf/types' 
+} from '@/lib/jmf/types'
 import { ClientDashboard } from './client-dashboard'
-import { ClientHistoryPage, ClientProfilePage, ClientRentalPage, ClientTrackingPage } from './client-pages'
+import { ClientHistoryPage, ClientProfilePage, ClientRentalPage, ClientTrackingPage, type ProfileUpdate } from './client-pages'
 import { ManagerCustomersPage } from './manager-customers'
 import { ManagerDumpstersPage, ManagerStockPage } from './manager-fleet'
 import { ManagerMapPage } from './manager-map'
@@ -73,6 +74,9 @@ import { CustomerAvatar } from './ui'
 const EMPTY_SETTINGS: CompanySettings = {
   weeklyPrice: 0,
   periodDays: 7,
+  price15: 0,
+  price30: 0,
+  plans: [],
   whatsapp: '',
   email: '',
   phone: '',
@@ -197,6 +201,7 @@ export function JmfAppShell({
   // Só exibe as telas depois que o backend informar o papel (evita piscar a área errada).
   const [ready, setReady] = useState(false)
   const [me, setMe] = useState<ApiMe | null>(null)
+  const [clientAvailable, setClientAvailable] = useState(1)
   const displayName = userName || customer.name
   const displayEmail = userEmail || customer.email
   const pendingCount = requests.filter((request) => ['pendente', 'troca_solicitada', 'retirada_solicitada'].includes(request.status)).length
@@ -205,7 +210,7 @@ export function JmfAppShell({
     return dumpsters.filter((dumpster) => dumpster.status === 'livre' && !dumpster.notes?.startsWith('Reservada'))
   }, [dumpsters])
   // O cliente não enxerga a frota; a disponibilidade é verificada pela equipe ao aprovar.
-  const availableCount = mode === 'cliente' ? 1 : availableDumpsterIds.length
+  const availableCount = mode === 'cliente' ? clientAvailable : availableDumpsterIds.length
   const activeDumpster = dumpsters.find(
     (dumpster) => dumpster.customerId === customer.id && dumpster.status === 'ocupada',
   )
@@ -222,6 +227,7 @@ export function JmfAppShell({
     setNotifications(snapshot.notifications)
     setActivities(snapshot.activities)
     setSettings(snapshot.settings)
+    if (snapshot.availableDumpsters != null) setClientAvailable(snapshot.availableDumpsters)
   }
 
   const reload = async (target: WorkspaceMode = modeRef.current) => {
@@ -388,6 +394,18 @@ export function JmfAppShell({
     }
   }
 
+  const handleSaveProfile = async (data: ProfileUpdate) => {
+    try {
+      const updated = await updateProfile({ name: data.name, phone: data.phone, cpf: data.cpf })
+      setMe(updated)
+      toast.success('Perfil atualizado.')
+      await reload()
+    } catch (error) {
+      toast.error(apiErrorMessage(error))
+      throw error
+    }
+  }
+
   const handleSaveSettings = async (nextSettings: CompanySettings) => {
     try {
       setSettings(await saveSettings(nextSettings))
@@ -427,7 +445,7 @@ export function JmfAppShell({
   const renderContent = () => {
     if (mode === 'cliente') {
       if (activePage === 'alugar') {
-        return <ClientRentalPage customer={customer} weeklyPrice={settings.weeklyPrice} availableCount={availableCount} onSubmit={handleCreateRental} onBack={() => navigate('acompanhamento')} />
+        return <ClientRentalPage customer={customer} weeklyPrice={settings.weeklyPrice} plans={settings.plans} availableCount={availableCount} onSubmit={handleCreateRental} onBack={() => navigate('acompanhamento')} />
       }
       if (activePage === 'acompanhamento') {
         return <ClientTrackingPage customerId={customer.id} currentDumpster={activeDumpster} requests={requests} onWhatsApp={handleWhatsApp} onRent={() => navigate('alugar')} onCreateSwap={handleCreateSwap} onCreateRemoval={handleCreateRemoval} />
@@ -435,8 +453,8 @@ export function JmfAppShell({
       if (activePage === 'historico') {
         return <ClientHistoryPage customer={customer} rentals={rentals} onRent={() => navigate('alugar')} />
       }
-      if (activePage === 'perfil') return <ClientProfilePage customer={customer} variant="cliente" />
-      return <ClientDashboard customer={customer} dumpster={activeDumpster} activeRental={activeRental} rate={settings.weeklyPrice} availableCount={availableCount} onRent={() => navigate('alugar')} onTrack={() => navigate('acompanhamento')} onCreateSwap={handleCreateSwap} onCreateRemoval={handleCreateRemoval} onWhatsApp={handleWhatsApp} />
+      if (activePage === 'perfil') return <ClientProfilePage customer={customer} variant="cliente" onSave={handleSaveProfile} />
+      return <ClientDashboard customer={customer} dumpster={activeDumpster} activeRental={activeRental} rate={settings.plans.find((plan) => plan.days === (activeRental?.periodDays ?? 7))?.price ?? settings.weeklyPrice} availableCount={availableCount} onRent={() => navigate('alugar')} onTrack={() => navigate('acompanhamento')} onCreateSwap={handleCreateSwap} onCreateRemoval={handleCreateRemoval} onWhatsApp={handleWhatsApp} />
     }
 
     if (activePage === 'solicitacoes') {
@@ -454,6 +472,7 @@ export function JmfAppShell({
       return (
         <ClientProfilePage
           variant="gestor"
+          onSave={handleSaveProfile}
           customer={{
             id: me?.user.id ?? '',
             name,

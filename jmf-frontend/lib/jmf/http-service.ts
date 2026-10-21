@@ -118,6 +118,7 @@ interface ApiRequest {
   desiredDate: string
   location: ApiLocation
   priceCents: number
+  periodDays: number
   reason?: string
   details?: string
   notes?: string
@@ -146,6 +147,8 @@ interface ApiRental {
   endedAt?: string
   location: ApiLocation
   weeklyPriceCents: number
+  periodDays: number
+  endsAt?: string
   status: RentalRecord['status']
   operation: RentalRecord['operation']
 }
@@ -170,9 +173,17 @@ interface ApiNotification {
   createdAt: string
 }
 
+interface ApiPlan {
+  days: number
+  priceCents: number
+}
+
 interface ApiSettings {
   weeklyPriceCents: number
   periodDays: number
+  price15Cents?: number
+  price30Cents?: number
+  plans?: ApiPlan[]
   whatsapp?: string
   email?: string
   phone?: string
@@ -189,8 +200,9 @@ interface ApiClientDashboard {
   customer: NonNullable<ApiMe['customer']>
   activeRentals: ApiRental[]
   totalRentals: number
-  pricing: { weeklyPriceCents: number; periodDays: number }
+  pricing: { weeklyPriceCents: number; periodDays: number; plans?: ApiPlan[] }
   contact: { whatsapp?: string; email?: string; phone?: string; address?: string }
+  availableDumpsters?: number
 }
 
 interface ApiOverview {
@@ -251,6 +263,7 @@ export function toRentalRequest(r: ApiRequest): RentalRequest {
     desiredDate: r.desiredDate,
     location: r.location,
     price: r.priceCents / 100,
+    periodDays: r.periodDays ?? 7,
     reason: r.reason ?? undefined,
     details: r.details ?? undefined,
     notes: r.notes ?? undefined,
@@ -283,6 +296,8 @@ function toRental(r: ApiRental): RentalRecord {
     endedAt: r.endedAt ?? undefined,
     location: r.location,
     weeklyPrice: r.weeklyPriceCents / 100,
+    periodDays: r.periodDays ?? 7,
+    endsAt: r.endsAt ?? undefined,
     status: r.status,
     operation: r.operation,
   }
@@ -306,10 +321,14 @@ function toNotification(n: ApiNotification, audience: WorkspaceMode): Notificati
   return { id: n.id, title: n.title, description: n.description, time: relativeTime(n.createdAt), read: n.read, audience }
 }
 
-function toSettings(s: { weeklyPriceCents: number; periodDays: number; whatsapp?: string; email?: string; phone?: string; address?: string }): CompanySettings {
+function toSettings(s: { weeklyPriceCents: number; periodDays: number; price15Cents?: number; price30Cents?: number; plans?: ApiPlan[]; whatsapp?: string; email?: string; phone?: string; address?: string }): CompanySettings {
+  const plans = (s.plans ?? [{ days: 7, priceCents: s.weeklyPriceCents }]).map((p) => ({ days: p.days, price: p.priceCents / 100 }))
   return {
     weeklyPrice: s.weeklyPriceCents / 100,
     periodDays: s.periodDays,
+    price15: s.price15Cents != null ? s.price15Cents / 100 : plans.find((p) => p.days === 15)?.price ?? 0,
+    price30: s.price30Cents != null ? s.price30Cents / 100 : plans.find((p) => p.days === 30)?.price ?? 0,
+    plans,
     whatsapp: s.whatsapp ?? '',
     email: s.email ?? '',
     phone: s.phone ?? '',
@@ -360,6 +379,8 @@ export interface JmfSnapshot {
   notifications: NotificationItem[]
   activities: ActivityItem[]
   settings: CompanySettings
+  /** Somente cliente: caçambas livres e sem reserva. */
+  availableDumpsters?: number
 }
 
 export function fetchMe() {
@@ -404,6 +425,7 @@ export async function loadClientData(): Promise<JmfSnapshot> {
     notifications: notifications.items.map((n) => toNotification(n, 'cliente')),
     activities: [],
     settings: toSettings({ ...dashboard.pricing, ...dashboard.contact }),
+    availableDumpsters: dashboard.availableDumpsters,
   }
 }
 
@@ -445,6 +467,7 @@ export const httpJmfService: JmfService = {
         location: toLocationPayload(input.location),
         details: input.details,
         notes: input.notes || undefined,
+        periodDays: input.periodDays ?? 7,
       }),
     })
     return toRentalRequest(created)
@@ -465,6 +488,11 @@ export const httpJmfService: JmfService = {
     })
     return toRentalRequest(created)
   },
+}
+
+/** Atualiza os dados do perfil (nome, telefone e, para clientes, CPF). */
+export function updateProfile(data: { name?: string; phone?: string; cpf?: string }) {
+  return jmfFetch<ApiMe>('/api/me', { method: 'PATCH', body: JSON.stringify(data) })
 }
 
 /** Após o cadastro no Neon Auth, persista o telefone informado no formulário. */
@@ -501,6 +529,8 @@ export function saveSettings(settings: CompanySettings) {
     body: JSON.stringify({
       weeklyPriceCents: Math.round(settings.weeklyPrice * 100),
       periodDays: settings.periodDays,
+      price15Cents: Math.round(settings.price15 * 100),
+      price30Cents: Math.round(settings.price30 * 100),
       whatsapp: settings.whatsapp,
       email: settings.email,
       phone: settings.phone,

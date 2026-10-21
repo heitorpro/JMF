@@ -53,6 +53,9 @@ public class RentalRequest extends AuditedEntity {
     @Column(name = "price_cents", nullable = false)
     private long priceCents;
 
+    @Column(name = "period_days", nullable = false)
+    private int periodDays = 7;
+
     private String reason;
 
     private String details;
@@ -134,6 +137,14 @@ public class RentalRequest extends AuditedEntity {
 
     public long getPriceCents() {
         return priceCents;
+    }
+
+    public int getPeriodDays() {
+        return periodDays;
+    }
+
+    public void setPeriodDays(int periodDays) {
+        this.periodDays = periodDays;
     }
 
     public String getReason() {

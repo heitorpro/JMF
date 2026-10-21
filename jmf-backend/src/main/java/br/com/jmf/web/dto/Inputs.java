@@ -60,7 +60,9 @@ public final class Inputs {
             @NotNull(message = "Informe o endereço.") @Valid LocationInput location,
             @NotBlank(message = "Descreva o material/obra.") @Size(max = 2000) String details,
             @Size(max = 2000) String notes,
-            UUID attachmentId) {
+            UUID attachmentId,
+            /** 7, 15 ou 30 dias (padrão: 7). */
+            Integer periodDays) {
     }
 
     /** rentalId é opcional quando o cliente tem uma única locação ativa. */
@@ -115,6 +117,8 @@ public final class Inputs {
     public record UpdateSettings(
             @Min(0) @Max(100_000_000) Long weeklyPriceCents,
             @Min(1) @Max(90) Integer periodDays,
+            @Min(0) @Max(100_000_000) Long price15Cents,
+            @Min(0) @Max(100_000_000) Long price30Cents,
             @Size(max = 20) String whatsapp,
             @Email(message = "E-mail inválido.") @Size(max = 254) String email,
             @Size(max = 20) String phone,

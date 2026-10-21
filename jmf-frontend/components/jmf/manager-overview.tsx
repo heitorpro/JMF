@@ -70,7 +70,13 @@ export function ManagerOverview({
   const swapsPending = requests.filter((request) => request.type === 'troca' && ['troca_solicitada', 'em_troca'].includes(request.status)).length
   const removalsPending = requests.filter((request) => request.type === 'retirada' && ['retirada_solicitada', 'em_retirada'].includes(request.status)).length
   const activeRentals = rentals.filter((rental) => rental.status === 'ativo').length
-  const weeklyRevenue = activeRentals * weeklyPrice
+  // Cada troca é um novo aluguel: conta todas as locações iniciadas no mês, inclusive as de troca.
+  const monthKey = new Date().toISOString().slice(0, 7)
+  const monthRentals = rentals.filter((rental) => rental.startedAt.slice(0, 7) === monthKey)
+  const monthSwaps = monthRentals.filter((rental) => rental.operation === 'troca').length
+  const monthRevenue = monthRentals.reduce((sum, rental) => sum + rental.weeklyPrice, 0)
+  const activeRevenue = rentals.filter((rental) => rental.status === 'ativo').reduce((sum, rental) => sum + rental.weeklyPrice, 0)
+  void weeklyPrice
   const lowerQuery = searchQuery.trim().toLocaleLowerCase('pt-BR')
   const visiblePending = pending
     .filter((request) => !lowerQuery || `${request.id} ${request.customerName} ${request.location.label}`.toLocaleLowerCase('pt-BR').includes(lowerQuery))
@@ -96,13 +102,13 @@ export function ManagerOverview({
           <MetricCard label="Solicitações pendentes" value={pending.filter((request) => request.type === 'aluguel').length} caption="Aguardando análise" icon={<ClipboardList aria-hidden="true" className="size-5" />} accent="amber" />
         </button>
         <button type="button" onClick={() => onNavigate('solicitacoes')} className="text-left">
-          <MetricCard label="Trocas pendentes" value={swapsPending} caption="Novo aluguel semanal" icon={<RefreshCw aria-hidden="true" className="size-5" />} accent="blue" />
+          <MetricCard label="Trocas pendentes" value={swapsPending} caption="Cada troca gera novo aluguel" icon={<RefreshCw aria-hidden="true" className="size-5" />} accent="blue" />
         </button>
         <button type="button" onClick={() => onNavigate('solicitacoes')} className="text-left">
           <MetricCard label="Retiradas pendentes" value={removalsPending} caption="Aguardando equipe" icon={<PackageCheck aria-hidden="true" className="size-5" />} accent="amber" />
         </button>
         <button type="button" onClick={() => onNavigate('alugueis')} className="text-left">
-          <MetricCard label="Aluguéis ativos" value={activeRentals} caption={formatCurrency(weeklyRevenue) + ' por semana'} icon={<TrendingUp aria-hidden="true" className="size-5" />} accent="green" />
+          <MetricCard label="Aluguéis no mês" value={monthRentals.length} caption={`${formatCurrency(monthRevenue)} · ${monthSwaps} por troca · ${activeRentals} ativos`} icon={<TrendingUp aria-hidden="true" className="size-5" />} accent="green" />
         </button>
       </div>
 
@@ -140,7 +146,7 @@ export function ManagerOverview({
                 <p className="text-xs font-medium text-muted-foreground">Locações ativas</p>
                 <p className="mt-1 text-2xl font-semibold tracking-tight">{activeRentals}<span className="ml-2 text-sm font-normal text-muted-foreground">caçambas</span></p>
               </div>
-              <div className="flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300"><ArrowUpRight aria-hidden="true" className="size-3.5" /> Receita semanal projetada</div>
+              <div className="flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300"><ArrowUpRight aria-hidden="true" className="size-3.5" /> Receita das locações ativas</div>
             </div>
             <div className="mt-4 grid h-40 grid-cols-6 items-end gap-3 border-b border-border pb-2 sm:gap-5">
               {monthBars.map((bar, index) => (
@@ -154,7 +160,7 @@ export function ManagerOverview({
             </div>
             <div className="mt-3 flex items-center justify-between gap-3 text-xs text-muted-foreground">
               <span>Ocupação da frota nos últimos 6 meses</span>
-              <span className="font-semibold text-foreground">{formatCurrency(weeklyRevenue)}/semana</span>
+              <span className="font-semibold text-foreground">{formatCurrency(activeRevenue)}</span>
             </div>
           </CardContent>
         </Card>

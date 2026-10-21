@@ -44,6 +44,8 @@ public final class Views {
             UUID dumpsterId, Integer dumpsterNumber,
             UUID replacementDumpsterId, Integer replacementDumpsterNumber,
             LocalDate desiredDate, LocationView location, long priceCents,
+            /** Plano contratado: 7, 15 ou 30 dias. */
+            int periodDays,
             String reason, String details, String notes, AttachmentView attachment,
             /** Próximo status no fluxo (para o botão "Avançar" do gestor); null se não houver. */
             RequestStatus nextStatus,
@@ -65,7 +67,12 @@ public final class Views {
 
     public record RentalView(
             UUID id, UUID customerId, String customerName, UUID dumpsterId, Integer dumpsterNumber,
-            LocalDate startedAt, LocalDate endedAt, LocationView location, long weeklyPriceCents,
+            LocalDate startedAt, LocalDate endedAt, LocationView location,
+            /** Valor do período contratado (nome mantido por compatibilidade). */
+            long weeklyPriceCents,
+            int periodDays,
+            /** Fim previsto do período: início + periodDays. */
+            LocalDate endsAt,
             RentalStatus status, RentalOperation operation) {
     }
 
@@ -88,16 +95,23 @@ public final class Views {
                                    boolean read, Instant readAt, Instant createdAt) {
     }
 
-    public record SettingsView(long weeklyPriceCents, int periodDays, String whatsapp, String email, String phone,
+    public record SettingsView(long weeklyPriceCents, int periodDays, long price15Cents, long price30Cents,
+                               List<PlanView> plans, String whatsapp, String email, String phone,
                                String address, Instant updatedAt) {
     }
 
-    public record PricingView(long weeklyPriceCents, int periodDays) {
+    /** Plano de aluguel disponível ao cliente. */
+    public record PlanView(int days, long priceCents) {
+    }
+
+    public record PricingView(long weeklyPriceCents, int periodDays, List<PlanView> plans) {
     }
 
     public record ClientDashboardView(
             CustomerProfileView customer, List<RentalView> activeRentals, List<RequestView> openRequests,
-            long totalRentals, long unreadNotifications, PricingView pricing, SettingsContactView contact) {
+            long totalRentals, long unreadNotifications, PricingView pricing, SettingsContactView contact,
+            /** Caçambas livres e sem reserva no momento. */
+            long availableDumpsters) {
     }
 
     public record SettingsContactView(String whatsapp, String email, String phone, String address) {

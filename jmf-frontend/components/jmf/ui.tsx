@@ -236,13 +236,17 @@ export function ActivityIcon({ kind }: { kind: ActivityItem['kind'] }) {
   )
 }
 
-export function PriceBlock({ price, compact = false }: { price: number; compact?: boolean }) {
+export function periodLabel(days = 7) {
+  return days === 7 ? '/ semana' : `/ ${days} dias`
+}
+
+export function PriceBlock({ price, compact = false, periodDays = 7 }: { price: number; compact?: boolean; periodDays?: number }) {
   return (
     <div className={cn('flex items-baseline gap-1.5', compact && 'gap-1')}>
       <span className={cn('font-semibold tracking-tight text-foreground', compact ? 'text-sm' : 'text-2xl')}>
         {formatCurrency(price)}
       </span>
-      <span className="text-xs text-muted-foreground">/ semana</span>
+      <span className="text-xs text-muted-foreground">{periodLabel(periodDays)}</span>
     </div>
   )
 }

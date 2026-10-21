@@ -22,6 +22,8 @@ public interface DumpsterRepository extends JpaRepository<Dumpster, UUID>, JpaSp
 
     boolean existsByNumber(int number);
 
+    long countByStatus(DumpsterStatus status);
+
     /** SELECT ... FOR UPDATE: serializa operações concorrentes sobre a mesma caçamba. */
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select d from Dumpster d where d.id = :id")

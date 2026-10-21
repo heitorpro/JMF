@@ -24,6 +24,15 @@ public class CompanySettings {
     @Column(name = "period_days", nullable = false)
     private int periodDays;
 
+    @Column(name = "price_15_cents", nullable = false)
+    private long price15Cents;
+
+    @Column(name = "price_30_cents", nullable = false)
+    private long price30Cents;
+
+    /** Planos aceitos para locação. */
+    public static final java.util.List<Integer> PLANS = java.util.List.of(7, 15, 30);
+
     private String whatsapp;
 
     private String email;
@@ -51,6 +60,32 @@ public class CompanySettings {
 
     public void setWeeklyPriceCents(long weeklyPriceCents) {
         this.weeklyPriceCents = weeklyPriceCents;
+    }
+
+    /** Preço vigente para o plano (7, 15 ou 30 dias). */
+    public long priceFor(int days) {
+        return switch (days) {
+            case 7 -> weeklyPriceCents;
+            case 15 -> price15Cents;
+            case 30 -> price30Cents;
+            default -> throw new IllegalArgumentException("Plano inválido: " + days);
+        };
+    }
+
+    public long getPrice15Cents() {
+        return price15Cents;
+    }
+
+    public void setPrice15Cents(long price15Cents) {
+        this.price15Cents = price15Cents;
+    }
+
+    public long getPrice30Cents() {
+        return price30Cents;
+    }
+
+    public void setPrice30Cents(long price30Cents) {
+        this.price30Cents = price30Cents;
     }
 
     public int getPeriodDays() {

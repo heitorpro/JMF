@@ -65,3 +65,24 @@ export function generateStrongPassword(length = 14) {
   }
   return chars.join('')
 }
+
+/** "52998224725" -> "529.982.247-25" */
+export function maskCpf(value: string) {
+  const d = value.replace(/\D/g, '').slice(0, 11)
+  return d
+    .replace(/^(\d{3})(\d)/, '$1.$2')
+    .replace(/^(\d{3})\.(\d{3})(\d)/, '$1.$2.$3')
+    .replace(/\.(\d{3})(\d{1,2})$/, '.$1-$2')
+}
+
+export function isValidCpf(value: string) {
+  const cpf = value.replace(/\D/g, '')
+  if (cpf.length !== 11 || new Set(cpf).size === 1) return false
+  const digit = (len: number) => {
+    let sum = 0
+    for (let i = 0; i < len; i++) sum += Number(cpf[i]) * (len + 1 - i)
+    const rest = (sum * 10) % 11
+    return rest === 10 ? 0 : rest
+  }
+  return digit(9) === Number(cpf[9]) && digit(10) === Number(cpf[10])
+}

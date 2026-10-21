@@ -54,7 +54,7 @@ public final class Mappers {
                 r.getCustomer().getId(), r.getCustomer().getName(),
                 d == null ? null : d.getId(), d == null ? null : d.getNumber(),
                 rep == null ? null : rep.getId(), rep == null ? null : rep.getNumber(),
-                r.getDesiredDate(), location(r.getLocation()), r.getPriceCents(),
+                r.getDesiredDate(), location(r.getLocation()), r.getPriceCents(), r.getPeriodDays(),
                 r.getReason(), r.getDetails(), r.getNotes(), attachment(r.getAttachment()),
                 RequestStateMachine.next(r.getType(), r.getStatus()),
                 RequestStateMachine.canCancel(r.getType(), r.getStatus()),
@@ -75,7 +75,8 @@ public final class Mappers {
     public static Views.RentalView rental(Rental r) {
         return new Views.RentalView(r.getId(), r.getCustomer().getId(), r.getCustomer().getName(),
                 r.getDumpster().getId(), r.getDumpster().getNumber(), r.getStartedAt(), r.getEndedAt(),
-                location(r.getLocation()), r.getWeeklyPriceCents(), r.getStatus(), r.getOperation());
+                location(r.getLocation()), r.getWeeklyPriceCents(), r.getPeriodDays(), r.endsAt(),
+                r.getStatus(), r.getOperation());
     }
 
     public static Views.CustomerProfileView customerProfile(Customer c) {
@@ -94,9 +95,13 @@ public final class Mappers {
                 n.getRequestId(), n.getReadAt() != null, n.getReadAt(), n.getCreatedAt());
     }
 
+    public static List<Views.PlanView> plans(CompanySettings s) {
+        return CompanySettings.PLANS.stream().map(days -> new Views.PlanView(days, s.priceFor(days))).toList();
+    }
+
     public static Views.SettingsView settings(CompanySettings s) {
-        return new Views.SettingsView(s.getWeeklyPriceCents(), s.getPeriodDays(),
-                PhoneNormalizer.format(s.getWhatsapp()), s.getEmail(), PhoneNormalizer.format(s.getPhone()),
+        return new Views.SettingsView(s.getWeeklyPriceCents(), s.getPeriodDays(), s.getPrice15Cents(),
+                s.getPrice30Cents(), plans(s), PhoneNormalizer.format(s.getWhatsapp()), s.getEmail(), PhoneNormalizer.format(s.getPhone()),
                 s.getAddress(), s.getUpdatedAt());
     }
 

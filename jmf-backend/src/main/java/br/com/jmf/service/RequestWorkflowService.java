@@ -165,8 +165,10 @@ public class RequestWorkflowService {
         boolean maintenance = Boolean.TRUE.equals(in.sendOldToMaintenance());
         old.release(maintenance ? DumpsterStatus.MANUTENCAO : DumpsterStatus.LIVRE);
         replacement.occupy(customer, r.getLocation(), today);
-        rentals.save(new Rental(customer, replacement, r.getLocation(), r.getId(), today, r.getPriceCents(),
-                RentalOperation.TROCA));
+        Rental swapRental = new Rental(customer, replacement, r.getLocation(), r.getId(), today, r.getPriceCents(),
+                RentalOperation.TROCA);
+        swapRental.setPeriodDays(r.getPeriodDays());
+        rentals.save(swapRental);
 
         r.setReplacementDumpster(replacement);
         r.setStatus(RequestStatus.EM_USO);
@@ -223,8 +225,10 @@ public class RequestWorkflowService {
                     "A caçamba reservada não está disponível. Realoque a solicitação.");
         }
         d.occupy(r.getCustomer(), r.getLocation(), today);
-        rentals.save(new Rental(r.getCustomer(), d, r.getLocation(), r.getId(), today, r.getPriceCents(),
-                RentalOperation.LOCACAO));
+        Rental rental = new Rental(r.getCustomer(), d, r.getLocation(), r.getId(), today, r.getPriceCents(),
+                RentalOperation.LOCACAO);
+        rental.setPeriodDays(r.getPeriodDays());
+        rentals.save(rental);
     }
 
     /** em_retirada → finalizada: encerra locação e libera a caçamba (regra 7). */
