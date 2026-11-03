@@ -311,3 +311,74 @@ export function getNextRequestStatus(request: RentalRequest): RequestStatus | nu
 
   return null
 }
+
+// ================================================================ resumo financeiro (gestor)
+
+export interface FinanceMonth {
+  /** "YYYY-MM" */
+  month: string
+  rentals: number
+  swaps: number
+  revenue: number
+  customers: number
+  occupancyPct: number
+}
+
+export interface FinancePeriod {
+  from: string
+  to: string
+  rentals: number
+  swaps: number
+  revenue: number
+}
+
+export interface FinanceDue {
+  rentalId: string
+  customerName: string
+  dumpsterId: string
+  neighborhood: string
+  startedAt: string
+  endsAt: string
+  /** > 0: dias de atraso · 0: vence hoje · < 0: vence em N dias */
+  daysLate: number
+}
+
+export interface FinanceSummary {
+  /** Hoje em São Luís (YYYY-MM-DD), informado pelo servidor. */
+  today: string
+  fleetSize: number
+  /** Últimos 12 meses, do mais antigo ao atual (o atual é parcial). */
+  months: FinanceMonth[]
+  monthToDate: FinancePeriod
+  previousMonthSamePeriod: FinancePeriod
+  previousMonth: FinancePeriod
+  yearToDate: FinancePeriod
+  activeRentals: number
+  activeValue: number
+  overdue: FinanceDue[]
+  dueSoon: FinanceDue[]
+}
+
+export interface FinanceNeighborhood {
+  neighborhood: string
+  rentals: number
+  revenue: number
+}
+
+/** Período escolhido no painel financeiro (mês, semestre ou ano). */
+export interface FinancePeriodDetail {
+  from: string
+  /** Último dia considerado (hoje, se o período ainda está em andamento). */
+  to: string
+  requestedTo: string
+  partial: boolean
+  rentals: number
+  swaps: number
+  revenue: number
+  customers: number
+  removals: number
+  occupancyPct: number
+  previous: FinancePeriod
+  months: FinanceMonth[]
+  topNeighborhoods: FinanceNeighborhood[]
+}

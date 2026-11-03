@@ -10,7 +10,7 @@ import org.springframework.data.domain.Sort;
 public final class PageParams {
 
     public static final int DEFAULT_SIZE = 20;
-    public static final int MAX_SIZE = 100;
+    public static final int MAX_SIZE = 500;
 
     private PageParams() {
     }

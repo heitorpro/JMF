@@ -9,6 +9,7 @@ import br.com.jmf.domain.model.RequestType;
 import br.com.jmf.security.CurrentUserProvider;
 import br.com.jmf.service.AttachmentService;
 import br.com.jmf.service.DumpsterService;
+import br.com.jmf.service.FinanceService;
 import br.com.jmf.service.ManagerQueryService;
 import br.com.jmf.service.RequestWorkflowService;
 import br.com.jmf.service.SettingsService;
@@ -51,10 +52,12 @@ public class ManagerController {
     private final DumpsterService dumpsters;
     private final SettingsService settings;
     private final AttachmentService attachments;
+    private final FinanceService finance;
 
     public ManagerController(CurrentUserProvider currentUser, ManagerQueryService queries,
                              RequestWorkflowService workflow, DumpsterService dumpsters, SettingsService settings,
-                             AttachmentService attachments) {
+                             AttachmentService attachments, FinanceService finance) {
+        this.finance = finance;
         this.currentUser = currentUser;
         this.queries = queries;
         this.workflow = workflow;
@@ -64,6 +67,22 @@ public class ManagerController {
     }
 
     // ------------------------------------------------------------------ visão geral
+
+    @Operation(summary = "Resumo financeiro: 12 meses, mês atual × mesmo período do mês anterior, vencimentos")
+    @PreAuthorize("hasAuthority('PERM_RENTALS_VIEW')")
+    @GetMapping("/finance")
+    public Views.FinanceView finance() {
+        return finance.summary();
+    }
+
+    @Operation(summary = "Resumo financeiro de um período (mês, semestre, ano) com comparação")
+    @PreAuthorize("hasAuthority('PERM_RENTALS_VIEW')")
+    @GetMapping("/finance/period")
+    public Views.FinancePeriodDetailView financePeriod(
+            @RequestParam @org.springframework.format.annotation.DateTimeFormat(iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE) java.time.LocalDate from,
+            @RequestParam @org.springframework.format.annotation.DateTimeFormat(iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE) java.time.LocalDate to) {
+        return finance.periodDetail(from, to);
+    }
 
     @Operation(summary = "Indicadores e atividades recentes")
     @GetMapping("/overview")

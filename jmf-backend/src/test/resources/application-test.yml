@@ -5,6 +5,7 @@ jmf:
     mode: hmac
     hmac-secret: test-secret-0123456789abcdef0123456789abcdef
     issuer: jmf-test
+    user-cache-seconds: 0
   rate-limit:
     enabled: false
   storage:

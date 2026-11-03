@@ -7,6 +7,7 @@ import {
   Check,
   CircleAlert,
   ClipboardList,
+  LoaderCircle,
   MapPin,
   RefreshCw,
   Truck,
@@ -82,6 +83,7 @@ export function ManagerRequests({
   onAdvance,
   onReject,
   onCompleteSwap,
+  busyIds = new Set<string>(),
 }: {
   requests: RentalRequest[]
   dumpsters: Dumpster[]
@@ -90,6 +92,8 @@ export function ManagerRequests({
   onAdvance: (requestId: string) => void
   onReject: (requestId: string) => void
   onCompleteSwap: (requestId: string, newDumpsterId: string) => void
+  /** Solicitações com ação em andamento: botões desabilitados e com indicador. */
+  busyIds?: Set<string>
 }) {
   const [filter, setFilter] = useState<RequestFilter>('todas')
   const [swapRequestId, setSwapRequestId] = useState<string | null>(null)
@@ -120,6 +124,9 @@ export function ManagerRequests({
   const renderActions = (request: RentalRequest) => {
     const actionLabel = requestActionLabel(request)
     if (!actionLabel) return <span className="text-xs text-muted-foreground">Sem ação pendente</span>
+    if (busyIds.has(request.id)) {
+      return <Button size="sm" variant="outline" disabled className="h-10 w-full justify-center gap-1.5 sm:h-9 sm:w-auto"><LoaderCircle data-icon="inline-start" className="animate-spin" />Atualizando…</Button>
+    }
 
     if (request.type === 'troca' && ['troca_solicitada', 'em_troca'].includes(request.status)) {
       return (

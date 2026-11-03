@@ -28,7 +28,7 @@ spring:
       hibernate:
         jdbc:
           time_zone: UTC
-        default_batch_fetch_size: 50
+        default_batch_fetch_size: 100
   datasource:
     hikari:
       maximum-pool-size: ${DB_POOL_SIZE:10}

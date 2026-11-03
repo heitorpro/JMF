@@ -17,6 +17,10 @@ import type {
   CompanySettings,
   Dumpster,
   DumpsterStatus,
+  FinanceDue,
+  FinancePeriod,
+  FinancePeriodDetail,
+  FinanceSummary,
   JmfCustomer,
   JmfService,
   LocationAddress,
@@ -221,6 +225,8 @@ interface ApiOverview {
 // ================================================================ mapas rótulo → UUID
 
 const requestUuidByLabel = new Map<string, string>()
+/** Caçamba ("#003") → id do aluguel ativo do cliente, para troca/retirada do aluguel escolhido. */
+const rentalUuidByDumpster = new Map<string, string>()
 const dumpsterUuidByLabel = new Map<string, string>()
 
 function requestUuid(label: string) {
@@ -381,6 +387,45 @@ export interface JmfSnapshot {
   settings: CompanySettings
   /** Somente cliente: caçambas livres e sem reserva. */
   availableDumpsters?: number
+  /** Somente gestor com permissão de aluguéis: resumo financeiro calculado no servidor. */
+  finance?: FinanceSummary | null
+}
+
+interface ApiFinancePeriod { from: string; to: string; rentals: number; swaps: number; revenueCents: number }
+interface ApiFinanceDue { rentalId: string; customerName: string; dumpsterNumber: number; neighborhood: string; startedAt: string; endsAt: string; daysLate: number }
+interface ApiFinance {
+  today: string
+  fleetSize: number
+  months: { month: string; rentals: number; swaps: number; revenueCents: number; customers: number; occupancyPct: number }[]
+  monthToDate: ApiFinancePeriod
+  previousMonthSamePeriod: ApiFinancePeriod
+  previousMonth: ApiFinancePeriod
+  yearToDate: ApiFinancePeriod
+  activeRentals: number
+  activeValueCents: number
+  overdue: ApiFinanceDue[]
+  dueSoon: ApiFinanceDue[]
+}
+
+function toFinance(f: ApiFinance): FinanceSummary {
+  const period = (p: ApiFinancePeriod): FinancePeriod => ({ from: p.from, to: p.to, rentals: p.rentals, swaps: p.swaps, revenue: p.revenueCents / 100 })
+  const due = (d: ApiFinanceDue): FinanceDue => ({
+    rentalId: d.rentalId, customerName: d.customerName, dumpsterId: dumpsterLabel(d.dumpsterNumber)!,
+    neighborhood: d.neighborhood, startedAt: d.startedAt, endsAt: d.endsAt, daysLate: d.daysLate,
+  })
+  return {
+    today: f.today,
+    fleetSize: f.fleetSize,
+    months: f.months.map((m) => ({ month: m.month, rentals: m.rentals, swaps: m.swaps, revenue: m.revenueCents / 100, customers: m.customers, occupancyPct: m.occupancyPct })),
+    monthToDate: period(f.monthToDate),
+    previousMonthSamePeriod: period(f.previousMonthSamePeriod),
+    previousMonth: period(f.previousMonth),
+    yearToDate: period(f.yearToDate),
+    activeRentals: f.activeRentals,
+    activeValue: f.activeValueCents / 100,
+    overdue: f.overdue.map(due),
+    dueSoon: f.dueSoon.map(due),
+  }
 }
 
 export function fetchMe() {
@@ -406,6 +451,11 @@ export async function loadClientData(): Promise<JmfSnapshot> {
     totalRentals: dashboard.totalRentals,
     status: dashboard.customer.status,
   }
+  rentalUuidByDumpster.clear()
+  for (const r of active) {
+    const label = dumpsterLabel(r.dumpsterNumber)
+    if (label) rentalUuidByDumpster.set(label, r.id)
+  }
   // O cliente não acessa a frota: as "caçambas" dele são as das locações ativas.
   const dumpsters: Dumpster[] = active.map((r) => ({
     id: dumpsterLabel(r.dumpsterNumber)!,
@@ -430,14 +480,16 @@ export async function loadClientData(): Promise<JmfSnapshot> {
 }
 
 export async function loadManagerData(): Promise<JmfSnapshot> {
-  const [requests, dumpsters, customers, rentals, notifications, settings, overview] = await Promise.all([
-    jmfFetch<Page<ApiRequest>>('/api/manager/requests?size=100'),
+  const [requests, dumpsters, customers, rentals, notifications, settings, overview, finance] = await Promise.all([
+    jmfFetch<Page<ApiRequest>>('/api/manager/requests?size=500'),
     jmfFetch<Page<ApiDumpster>>('/api/manager/dumpsters?size=100'),
-    optional(jmfFetch<Page<ApiCustomer>>('/api/manager/customers?size=100'), emptyPage<ApiCustomer>()),
-    optional(jmfFetch<Page<ApiRental>>('/api/manager/rentals?size=100'), emptyPage<ApiRental>()),
+    optional(jmfFetch<Page<ApiCustomer>>('/api/manager/customers?size=500'), emptyPage<ApiCustomer>()),
+    optional(jmfFetch<Page<ApiRental>>('/api/manager/rentals?size=500'), emptyPage<ApiRental>()),
     jmfFetch<Page<ApiNotification>>('/api/me/notifications?size=50'),
     jmfFetch<ApiSettings>('/api/manager/settings'),
     jmfFetch<ApiOverview>('/api/manager/overview'),
+    // Sem permissão (403) ou backend ainda sem o resumo (404): o restante do painel carrega normalmente.
+    jmfFetch<ApiFinance | null>('/api/manager/finance').catch(() => null),
   ])
   return {
     dumpsters: dumpsters.items.map(toDumpster),
@@ -453,6 +505,7 @@ export async function loadManagerData(): Promise<JmfSnapshot> {
       kind: activityKind(a.requestType, a.toStatus),
     })),
     settings: toSettings(settings),
+    finance: finance ? toFinance(finance) : null,
   }
 }
 
@@ -476,7 +529,7 @@ export const httpJmfService: JmfService = {
   async createSwapRequest(input: SwapRequestInput) {
     const created = await jmfFetch<ApiRequest>('/api/client/requests/swap', {
       method: 'POST',
-      body: JSON.stringify({ desiredDate: input.desiredDate.slice(0, 10), reason: input.reason, notes: input.notes || undefined }),
+      body: JSON.stringify({ rentalId: rentalUuidByDumpster.get(input.dumpsterId), desiredDate: input.desiredDate.slice(0, 10), reason: input.reason, notes: input.notes || undefined }),
     })
     return toRentalRequest(created)
   },
@@ -484,7 +537,7 @@ export const httpJmfService: JmfService = {
   async createRemovalRequest(input: RemovalRequestInput) {
     const created = await jmfFetch<ApiRequest>('/api/client/requests/removal', {
       method: 'POST',
-      body: JSON.stringify({ desiredDate: input.desiredDate.slice(0, 10), reason: input.reason, notes: input.notes || undefined }),
+      body: JSON.stringify({ rentalId: rentalUuidByDumpster.get(input.dumpsterId), desiredDate: input.desiredDate.slice(0, 10), reason: input.reason, notes: input.notes || undefined }),
     })
     return toRentalRequest(created)
   },
@@ -499,6 +552,25 @@ export function updateProfile(data: { name?: string; phone?: string; cpf?: strin
 export async function fetchSyncVersion(): Promise<string> {
   const result = await jmfFetch<{ version: string }>('/api/me/sync')
   return result.version
+}
+
+/** Resumo financeiro de um período escolhido (datas YYYY-MM-DD). */
+export async function fetchFinancePeriod(from: string, to: string): Promise<FinancePeriodDetail> {
+  const d = await jmfFetch<{
+    from: string; to: string; requestedTo: string; partial: boolean; rentals: number; swaps: number
+    revenueCents: number; customers: number; removals: number; occupancyPct: number
+    previous: { from: string; to: string; rentals: number; swaps: number; revenueCents: number }
+    months: { month: string; rentals: number; swaps: number; revenueCents: number; customers: number; occupancyPct: number }[]
+    topNeighborhoods: { neighborhood: string; rentals: number; revenueCents: number }[]
+  }>(`/api/manager/finance/period?from=${from}&to=${to}`)
+  return {
+    from: d.from, to: d.to, requestedTo: d.requestedTo, partial: d.partial,
+    rentals: d.rentals, swaps: d.swaps, revenue: d.revenueCents / 100, customers: d.customers,
+    removals: d.removals, occupancyPct: d.occupancyPct,
+    previous: { from: d.previous.from, to: d.previous.to, rentals: d.previous.rentals, swaps: d.previous.swaps, revenue: d.previous.revenueCents / 100 },
+    months: d.months.map((m) => ({ month: m.month, rentals: m.rentals, swaps: m.swaps, revenue: m.revenueCents / 100, customers: m.customers, occupancyPct: m.occupancyPct })),
+    topNeighborhoods: d.topNeighborhoods.map((n) => ({ neighborhood: n.neighborhood, rentals: n.rentals, revenue: n.revenueCents / 100 })),
+  }
 }
 
 /** Telefone/nome do cadastro ainda não confirmados pelo servidor (localStorage). */

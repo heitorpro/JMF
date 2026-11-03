@@ -175,6 +175,44 @@ class RequestFlowIT extends AbstractIntegrationTest {
     }
 
     @Test
+    void resumoFinanceiroContaLocacoesDoMesNoFusoDeSaoLuis() throws Exception {
+        String admin = token("admin-1", "admin");
+        createDumpsters(admin, 1);
+        String joao = clientWithPhone("joao");
+        String id = data(doPost(joao, "/api/client/requests/rental", rentalBody())
+                .andExpect(status().isCreated())).get("id").asText();
+        for (String to : new String[]{"aprovada", "em_entrega", "entregue", "em_uso"}) {
+            doPatch(admin, "/api/manager/requests/" + id + "/status", Map.of("status", to)).andExpect(status().isOk());
+        }
+        String today = java.time.LocalDate.now(java.time.ZoneId.of("America/Fortaleza")).toString();
+        doGet(admin, "/api/manager/finance")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.today").value(today))
+                .andExpect(jsonPath("$.data.months.length()").value(12))
+                .andExpect(jsonPath("$.data.months[11].month").value(today.substring(0, 7)))
+                .andExpect(jsonPath("$.data.months[11].rentals").value(1))
+                .andExpect(jsonPath("$.data.monthToDate.rentals").value(1))
+                .andExpect(jsonPath("$.data.monthToDate.revenueCents").value(30000))
+                .andExpect(jsonPath("$.data.activeRentals").value(1))
+                .andExpect(jsonPath("$.data.overdue.length()").value(0));
+        java.time.LocalDate day = java.time.LocalDate.parse(today);
+        String first = day.withDayOfMonth(1).toString();
+        String last = day.withDayOfMonth(day.lengthOfMonth()).toString();
+        doGet(admin, "/api/manager/finance/period?from=" + first + "&to=" + last)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.from").value(first))
+                .andExpect(jsonPath("$.data.to").value(today))           // limitado a hoje
+                .andExpect(jsonPath("$.data.rentals").value(1))
+                .andExpect(jsonPath("$.data.revenueCents").value(30000))
+                .andExpect(jsonPath("$.data.previous.from").value(day.withDayOfMonth(1).minusMonths(1).toString()))
+                .andExpect(jsonPath("$.data.months.length()").value(1))
+                .andExpect(jsonPath("$.data.topNeighborhoods[0].neighborhood").value("Calhau"));
+        doGet(admin, "/api/manager/finance/period?from=" + last + "&to=" + first).andExpect(status().isBadRequest());
+        // cliente não acessa o financeiro
+        doGet(joao, "/api/manager/finance").andExpect(status().isForbidden());
+    }
+
+    @Test
     void rejeicaoECancelamento() throws Exception {
         String admin = token("admin-1", "admin");
         String joao = clientWithPhone("joao");

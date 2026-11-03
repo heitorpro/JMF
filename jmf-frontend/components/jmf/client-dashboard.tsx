@@ -33,7 +33,7 @@ import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
 import { JmfMap } from '@/components/jmf/map'
-import { formatCurrency, formatDate, getGreeting } from '@/lib/jmf/format'
+import { formatCurrency, formatDate, getGreeting, toDateInputValue } from '@/lib/jmf/format'
 import {
   type CompanySettings,
   type Dumpster,
@@ -222,7 +222,7 @@ export function ClientDashboard({
             </div>
             <div className="mt-4 flex items-center justify-between text-xs text-muted-foreground">
               <span>Início: {dumpster?.rentalStartedAt ? formatDate(dumpster.rentalStartedAt) : '—'}</span>
-              <span>Fim do período: {dumpster?.rentalStartedAt ? formatDate(getDueDate(dumpster.rentalStartedAt, period).toISOString()) : '—'}</span>
+              <span>Fim do período: {dumpster?.rentalStartedAt ? formatDate(toDateInputValue(getDueDate(dumpster.rentalStartedAt, period))) : '—'}</span>
             </div>
             <Button variant="outline" onClick={onTrack} className="mt-6 h-10 w-full justify-between px-3.5">
               Acompanhar solicitação

@@ -138,4 +138,43 @@ public final class Views {
 
     public record ResolvedLocationView(LocationView location, boolean geocoded) {
     }
+
+    // ------------------------------------------------------------------ resumo financeiro
+
+    /** Um mês do histórico: locações iniciadas, faturamento e ocupação média da frota (%). */
+    public record FinanceMonthView(String month, long rentals, long swaps, long revenueCents, long customers,
+                                   double occupancyPct) {
+    }
+
+    /** Totais de locações iniciadas entre from e to (inclusive). */
+    public record FinancePeriodView(LocalDate from, LocalDate to, long rentals, long swaps, long revenueCents) {
+    }
+
+    /** Locação ativa que venceu (daysLate > 0) ou vence em breve (daysLate <= 0). */
+    public record FinanceDueView(UUID rentalId, String customerName, int dumpsterNumber, String neighborhood,
+                                 LocalDate startedAt, LocalDate endsAt, long daysLate) {
+    }
+
+    public record FinanceNeighborhoodView(String neighborhood, long rentals, long revenueCents) {
+    }
+
+    /** Período escolhido no painel: totais, comparação com o período anterior equivalente e meses. */
+    public record FinancePeriodDetailView(
+            LocalDate from, LocalDate to,
+            /** Fim pedido (to pode ser menor quando o período ainda está em andamento). */
+            LocalDate requestedTo, boolean partial,
+            long rentals, long swaps, long revenueCents, long customers, long removals, double occupancyPct,
+            FinancePeriodView previous, List<FinanceMonthView> months,
+            List<FinanceNeighborhoodView> topNeighborhoods) {
+    }
+
+    public record FinanceView(
+            LocalDate today, int fleetSize,
+            /** Últimos 12 meses, do mais antigo ao atual (o atual é parcial, até hoje). */
+            List<FinanceMonthView> months,
+            FinancePeriodView monthToDate, FinancePeriodView previousMonthSamePeriod,
+            FinancePeriodView previousMonth, FinancePeriodView yearToDate,
+            long activeRentals, long activeValueCents,
+            List<FinanceDueView> overdue, List<FinanceDueView> dueSoon) {
+    }
 }
