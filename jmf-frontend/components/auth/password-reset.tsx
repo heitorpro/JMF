@@ -2,13 +2,13 @@
 
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { useState, type FormEvent, type ReactNode } from 'react'
+import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
 import { ArrowLeft, Check, Eye, EyeOff, KeyRound, LoaderCircle, MailCheck, Sparkles, X } from 'lucide-react'
 import { Button, buttonVariants } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
 import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
-import { authClient } from '@/lib/auth/client'
+import { getSupabaseBrowserClient } from '@/lib/auth/client'
 import {
   PASSWORD_RULES,
   generateStrongPassword,
@@ -63,11 +63,10 @@ export function ForgotPasswordForm() {
     }
     setIsPending(true)
     try {
-      const result = await authClient.requestPasswordReset({
-        email: normalized,
-        redirectTo: `${window.location.origin}/auth/reset-password`,
+      const { error } = await getSupabaseBrowserClient().auth.resetPasswordForEmail(normalized, {
+        redirectTo: `${window.location.origin}/auth/callback?next=/auth/reset-password`,
       })
-      if (result?.error && (result.error.status ?? 0) >= 500) {
+      if (error && (error.status === 429 || (error.status ?? 0) >= 500)) {
         setErrorMessage('Não foi possível enviar o e-mail agora. Tente novamente em alguns minutos.')
         return
       }
@@ -132,8 +131,14 @@ export function ForgotPasswordForm() {
 }
 
 /** Etapa 2: o cliente abre o link do e-mail e define a nova senha. */
-export function ResetPasswordForm({ token, linkError }: { token?: string; linkError?: string }) {
+export function ResetPasswordForm({ linkError }: { linkError?: string }) {
   const router = useRouter()
+  const [hasSession, setHasSession] = useState<boolean | null>(null)
+
+  useEffect(() => {
+    // O link do e-mail passa por /auth/callback, que já abre a sessão de recuperação.
+    getSupabaseBrowserClient().auth.getSession().then(({ data }) => setHasSession(Boolean(data.session)))
+  }, [])
   const [password, setPassword] = useState('')
   const [confirm, setConfirm] = useState('')
   const [showPassword, setShowPassword] = useState(false)
@@ -143,7 +148,15 @@ export function ResetPasswordForm({ token, linkError }: { token?: string; linkEr
   const strengthColor = score >= 5 ? 'bg-emerald-500' : score >= 4 ? 'bg-lime-500' : score >= 3 ? 'bg-amber-500' : 'bg-destructive'
   const mismatch = confirm.length > 0 && confirm !== password
 
-  if (!token || linkError) {
+  if (hasSession === null && !linkError) {
+    return (
+      <AuthCard icon={<LoaderCircle aria-hidden="true" className="size-5 animate-spin" />} title="Validando o link…" description="Só um instante.">
+        <span />
+      </AuthCard>
+    )
+  }
+
+  if (!hasSession || linkError) {
     return (
       <AuthCard
         icon={<X aria-hidden="true" className="size-5" />}
@@ -169,11 +182,15 @@ export function ResetPasswordForm({ token, linkError }: { token?: string; linkEr
     }
     setIsPending(true)
     try {
-      const result = await authClient.resetPassword({ newPassword: password, token })
-      if (result?.error) {
-        setErrorMessage('Não foi possível redefinir a senha. O link pode ter expirado; peça um novo link.')
+      const supabase = getSupabaseBrowserClient()
+      const { error } = await supabase.auth.updateUser({ password })
+      if (error) {
+        setErrorMessage(/different|same/i.test(error.message)
+          ? 'A nova senha precisa ser diferente da anterior.'
+          : 'Não foi possível redefinir a senha. O link pode ter expirado; peça um novo link.')
         return
       }
+      await supabase.auth.signOut()
       router.replace('/auth/sign-in?senha=redefinida')
     } catch {
       setErrorMessage('Não foi possível redefinir a senha agora. Tente novamente.')

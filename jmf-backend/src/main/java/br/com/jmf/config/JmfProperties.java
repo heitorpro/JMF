@@ -20,9 +20,13 @@ public record JmfProperties(
      * @param mode       "neon" (produção: JWT EdDSA do Neon Auth via JWKS) ou "hmac" (somente dev/test)
      * @param neonBaseUrl NEON_AUTH_BASE_URL; JWKS e issuer são derivados dele quando não informados
      * @param adminRoles valores da claim "role" que concedem papel de gestor com todas as permissões
+     * @param supabaseUrl SUPABASE_URL (modo "supabase"); JWKS e issuer são derivados de {url}/auth/v1
+     * @param supabaseJwtSecret segredo JWT legado do Supabase (HS256), opcional; só é usado se os tokens
+     *                          ainda forem assinados com ele em vez das chaves assimétricas (ES256/RS256)
      */
     public record Auth(String mode, String neonBaseUrl, String jwksUri, String issuer, String audience,
-                       String hmacSecret, Duration jwksCacheTtl, Duration clockSkew, List<String> adminRoles) {
+                       String hmacSecret, Duration jwksCacheTtl, Duration clockSkew, List<String> adminRoles,
+                       String supabaseUrl, String supabaseJwtSecret) {
     }
 
     public record Cors(List<String> allowedOrigins) {

@@ -27,7 +27,7 @@ import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Separator } from '@/components/ui/separator'
-import { authClient } from '@/lib/auth/client'
+import { getSupabaseBrowserClient } from '@/lib/auth/client'
 import { cn } from '@/lib/utils'
 import {
   apiErrorMessage,
@@ -536,7 +536,7 @@ export function JmfAppShell({
 
   const handleSignOut = async () => {
     try {
-      const { error } = await authClient.signOut()
+      const { error } = await getSupabaseBrowserClient().auth.signOut()
       if (error) {
         toast.error('Não foi possível encerrar sua sessão. Tente novamente.')
         return

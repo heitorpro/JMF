@@ -5,13 +5,13 @@
  * Copie para `lib/jmf/http-service.ts` no projeto Next.js e defina
  * NEXT_PUBLIC_JMF_API_URL (ex.: http://localhost:8080).
  *
- * - Autenticação: JWT do Neon Auth obtido com `authClient.token()` e enviado como Bearer.
+ * - Autenticação: access token da sessão do Supabase Auth, enviado como Bearer.
  * - O backend IGNORA/REJEITA customerId, customerName e price: dono e preço são definidos no servidor.
  * - Valores monetários chegam em centavos e são convertidos para reais aqui.
  * - Os componentes usam rótulos legíveis como id ("#024" para caçambas, "JMF-2026-000001" para
  *   solicitações). Os UUIDs reais ficam guardados em mapas internos para as chamadas de API.
  */
-import { authClient } from '@/lib/auth/client'
+import { getSupabaseBrowserClient } from '@/lib/auth/client'
 import type {
   ActivityItem,
   CompanySettings,
@@ -61,11 +61,11 @@ let cachedToken: { value: string; expiresAt: number } | null = null
 
 async function getToken(): Promise<string> {
   if (cachedToken && cachedToken.expiresAt - 30_000 > Date.now()) return cachedToken.value
-  const { data, error } = await authClient.token()
-  if (error || !data?.token) throw new JmfApiError(401, 'UNAUTHENTICATED', 'Sessão expirada. Entre novamente.')
-  const payload = JSON.parse(atob(data.token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')))
-  cachedToken = { value: data.token, expiresAt: (payload.exp ?? 0) * 1000 }
-  return data.token
+  const { data, error } = await getSupabaseBrowserClient().auth.getSession()
+  const token = data.session?.access_token
+  if (error || !token) throw new JmfApiError(401, 'UNAUTHENTICATED', 'Sessão expirada. Entre novamente.')
+  cachedToken = { value: token, expiresAt: (data.session?.expires_at ?? 0) * 1000 }
+  return token
 }
 
 export async function jmfFetch<T>(path: string, init: RequestInit = {}): Promise<T> {

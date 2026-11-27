@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
 import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
-import { authClient } from '@/lib/auth/client'
+import { getSupabaseBrowserClient } from '@/lib/auth/client'
 import { saveProfilePhone } from '@/lib/jmf/http-service'
 import {
   PASSWORD_RULES,
@@ -28,7 +28,10 @@ const logoSrc = 'https://hebbkx1anhila5yf.public.blob.vercel-storage.com/Gemini_
 
 export function AuthForm({ mode }: { mode: AuthFormMode }) {
   const router = useRouter()
-  const passwordWasReset = useSearchParams().get('senha') === 'redefinida'
+  const searchParams = useSearchParams()
+  const passwordWasReset = searchParams.get('senha') === 'redefinida'
+  const invalidLink = searchParams.get('link') === 'invalido'
+  const [confirmationSent, setConfirmationSent] = useState(false)
   const [isPending, setIsPending] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [phone, setPhone] = useState('')
@@ -74,26 +77,40 @@ export function AuthForm({ mode }: { mode: AuthFormMode }) {
     }
 
     try {
-      const result = isSignUp
-        ? await authClient.signUp.email({
+      const supabase = getSupabaseBrowserClient()
+      const name = String(formData.get('name') ?? '').trim()
+      const { data, error } = isSignUp
+        ? await supabase.auth.signUp({
             email: normalizedEmail,
-            name: String(formData.get('name') ?? '').trim(),
             password,
+            options: {
+              data: { name, phone },
+              emailRedirectTo: `${window.location.origin}/auth/callback`,
+            },
           })
-        : await authClient.signIn.email({ email: normalizedEmail, password })
+        : await supabase.auth.signInWithPassword({ email: normalizedEmail, password })
 
-      if (result.error) {
+      if (error) {
+        const unconfirmed = /confirm/i.test(error.message)
         setErrorMessage(
           isSignUp
             ? 'Não foi possível criar a conta com esses dados. Confira as informações e tente novamente.'
-            : 'Não foi possível entrar com esses dados. Confira o e-mail e a senha.',
+            : unconfirmed
+              ? 'Confirme seu e-mail pelo link que enviamos antes de entrar.'
+              : 'Não foi possível entrar com esses dados. Confira o e-mail e a senha.',
         )
+        return
+      }
+
+      if (isSignUp && !data.session) {
+        // Confirmação de e-mail ativa: a conta só fica disponível depois do clique no link.
+        setConfirmationSent(true)
         return
       }
 
       if (isSignUp) {
         try {
-          await saveProfilePhone(phone, String(formData.get('name') ?? '').trim())
+          await saveProfilePhone(phone, name)
         } catch {
           // Se falhar, o telefone pode ser informado depois no perfil
         }
@@ -277,6 +294,14 @@ export function AuthForm({ mode }: { mode: AuthFormMode }) {
                 </Field>
               </FieldGroup>
 
+              {confirmationSent ? (
+                <p role="status" className="rounded-lg bg-emerald-500/10 px-3 py-2 text-sm text-emerald-700 dark:text-emerald-300">
+                  Conta criada! Enviamos um link de confirmação para {normalizeEmail(email)}. Confirme o e-mail e depois entre.
+                </p>
+              ) : null}
+              {invalidLink && !errorMessage ? (
+                <p role="alert" className="text-sm text-destructive">O link de confirmação é inválido ou expirou. Entre ou cadastre-se novamente.</p>
+              ) : null}
               {passwordWasReset && !isSignUp && !errorMessage ? (
                 <p role="status" className="rounded-lg bg-emerald-500/10 px-3 py-2 text-sm text-emerald-700 dark:text-emerald-300">
                   Senha redefinida com sucesso. Entre com a nova senha.

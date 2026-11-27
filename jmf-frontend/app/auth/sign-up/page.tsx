@@ -1,7 +1,7 @@
 import type { Metadata } from 'next'
 import { redirect } from 'next/navigation'
 import { AuthForm } from '@/components/auth/auth-form'
-import { auth } from '@/lib/auth/server'
+import { getCurrentUser } from '@/lib/auth/server'
 
 export const dynamic = 'force-dynamic'
 
@@ -11,9 +11,9 @@ export const metadata: Metadata = {
 }
 
 export default async function SignUpPage() {
-  const { data: session } = await auth.getSession()
+  const user = await getCurrentUser()
 
-  if (session?.user) {
+  if (user) {
     redirect('/')
   }
 

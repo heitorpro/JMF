@@ -11,8 +11,8 @@ export const metadata: Metadata = {
 export default async function ResetPasswordPage({
   searchParams,
 }: {
-  searchParams: Promise<{ token?: string; error?: string }>
+  searchParams: Promise<{ error?: string }>
 }) {
-  const { token, error } = await searchParams
-  return <ResetPasswordForm token={token} linkError={error} />
+  const { error } = await searchParams
+  return <ResetPasswordForm linkError={error} />
 }

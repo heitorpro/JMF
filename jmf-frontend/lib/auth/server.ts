@@ -1,28 +1,25 @@
-import { createNeonAuth } from '@neondatabase/auth/next/server'
+import type { User } from '@supabase/supabase-js'
+import { createSupabaseServerClient } from '@/lib/supabase/server'
 
-const baseUrl = process.env.NEON_AUTH_BASE_URL
-const cookieSecret = process.env.NEON_AUTH_COOKIE_SECRET
-
-if (!baseUrl) {
-  throw new Error('NEON_AUTH_BASE_URL is required to initialize Neon Auth.')
+/** Usuário autenticado (validado no servidor do Supabase) ou null. */
+export async function getCurrentUser(): Promise<User | null> {
+  const supabase = await createSupabaseServerClient()
+  const { data } = await supabase.auth.getUser()
+  return data.user ?? null
 }
 
-if (!cookieSecret || cookieSecret.length < 32) {
-  throw new Error('NEON_AUTH_COOKIE_SECRET must contain at least 32 characters.')
+/** Nome exibido: user_metadata.name, ou a parte do e-mail antes do @. */
+export function displayName(user: User) {
+  const name = typeof user.user_metadata?.name === 'string' ? user.user_metadata.name.trim() : ''
+  return name || (user.email ? user.email.split('@')[0] : 'Usuário')
 }
 
-export const auth = createNeonAuth({
-  baseUrl,
-  cookies: {
-    secret: cookieSecret,
-    sameSite: process.env.NODE_ENV === 'development' ? 'none' : 'lax',
-  },
-})
-
-export function hasJmfManagementAccess(user: {
-  role?: string | string[]
-}) {
-  const roles = Array.isArray(user.role) ? user.role : [user.role]
+/**
+ * Acesso à área do gestor: app_metadata.role = "admin" (definido só pelo servidor do Supabase).
+ * O backend continua sendo quem decide as permissões de cada rota.
+ */
+export function hasJmfManagementAccess(user: Pick<User, 'app_metadata'>) {
+  const role = user.app_metadata?.role ?? user.app_metadata?.roles
+  const roles = Array.isArray(role) ? role : [role]
   return roles.includes('admin')
 }
-

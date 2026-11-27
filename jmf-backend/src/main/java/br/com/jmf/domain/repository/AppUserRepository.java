@@ -27,4 +27,22 @@ public interface AppUserRepository extends JpaRepository<AppUser, UUID> {
             """, nativeQuery = true)
     int insertIfAbsent(@Param("authUserId") String authUserId, @Param("name") String name,
                        @Param("email") String email, @Param("role") String role);
+
+    /** Conta já existente com o mesmo e-mail e outro "sub" (ex.: criada no provedor de login anterior). */
+    @Query(value = """
+            select * from app_users
+             where lower(email) = lower(:email) and auth_user_id <> :sub
+             order by created_at
+             limit 1
+            """, nativeQuery = true)
+    Optional<AppUser> findOrphanByEmail(@Param("email") String email, @Param("sub") String sub);
+
+    /** Vincula a conta existente ao novo "sub" do provedor de login, se o "sub" ainda não estiver em uso. */
+    @Modifying(clearAutomatically = true)
+    @Query(value = """
+            update app_users set auth_user_id = :sub, updated_at = now()
+             where id = :id
+               and not exists (select 1 from app_users where auth_user_id = :sub)
+            """, nativeQuery = true)
+    int relink(@Param("id") java.util.UUID id, @Param("sub") String sub);
 }

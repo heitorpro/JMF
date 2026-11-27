@@ -1,6 +1,6 @@
 # =====================================================================
 # JMF backend — configuração base (produção). Perfis: dev, test, prod.
-# Banco: DATABASE_URL / DATABASE_URL_UNPOOLED (formato Neon) são convertidos
+# Banco: DATABASE_URL / DATABASE_URL_UNPOOLED (formato postgresql://, Supabase ou Neon) são convertidos
 # automaticamente para JDBC (DatabaseUrlEnvironmentPostProcessor).
 # =====================================================================
 server:
@@ -73,7 +73,7 @@ logging:
 
 jmf:
   auth:
-    mode: ${JMF_AUTH_MODE:neon}
+    mode: ${JMF_AUTH_MODE:supabase}
     neon-base-url: ${NEON_AUTH_BASE_URL:}
     jwks-uri: ${JMF_AUTH_JWKS_URI:}          # padrão: ${NEON_AUTH_BASE_URL}/.well-known/jwks.json
     issuer: ${JMF_AUTH_ISSUER:}              # padrão: origem de NEON_AUTH_BASE_URL
@@ -82,6 +82,8 @@ jmf:
     jwks-cache-ttl: 10m
     clock-skew: 60s
     admin-roles: ${JMF_ADMIN_ROLES:admin}
+    supabase-url: ${SUPABASE_URL:}
+    supabase-jwt-secret: ${SUPABASE_JWT_SECRET:}
   cors:
     allowed-origins: ${JMF_CORS_ORIGINS:}    # ex.: https://jmf.vercel.app,https://www.jmfentulhos.com.br
   rate-limit:

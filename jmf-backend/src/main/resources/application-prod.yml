@@ -1,4 +1,4 @@
-# Produção: exige Neon Auth e desliga documentação.
+# Produção: exige Supabase Auth (ou Neon Auth) e desliga documentação.
 springdoc:
   api-docs:
     enabled: false
@@ -7,4 +7,4 @@ springdoc:
 
 jmf:
   auth:
-    mode: neon
+    mode: ${JMF_AUTH_MODE:supabase}

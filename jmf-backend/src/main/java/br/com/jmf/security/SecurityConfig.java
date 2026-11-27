@@ -12,6 +12,10 @@ import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.oauth2.jose.jws.MacAlgorithm;
+import com.nimbusds.jwt.JWTParser;
+import org.springframework.security.oauth2.core.DelegatingOAuth2TokenValidator;
+import org.springframework.security.oauth2.jwt.BadJwtException;
+import org.springframework.security.oauth2.jwt.JwtClaimValidator;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.security.oauth2.jwt.JwtValidators;
 import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
@@ -23,7 +27,9 @@ import org.springframework.security.web.header.writers.StaticHeadersWriter;
 import javax.crypto.spec.SecretKeySpec;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
+import java.text.ParseException;
 import java.time.Clock;
+import java.util.List;
 
 @Configuration
 @EnableMethodSecurity
@@ -87,6 +93,10 @@ public class SecurityConfig {
             return decoder;
         }
 
+        if ("supabase".equals(mode)) {
+            return supabaseDecoder(auth, clock);
+        }
+
         if (!"neon".equals(mode)) {
             throw new IllegalStateException("jmf.auth.mode inválido: " + mode);
         }
@@ -96,6 +106,50 @@ public class SecurityConfig {
         String issuer = auth.issuer() != null && !auth.issuer().isBlank() ? auth.issuer() : origin(requireBase(base));
         JwksProvider jwks = new JwksProvider(URI.create(jwksUri), auth.jwksCacheTtl(), clock);
         return new NeonJwtDecoder(jwks, issuer, auth.audience(), auth.clockSkew(), clock);
+    }
+
+    /**
+     * Supabase Auth: tokens assinados com chave assimétrica (ES256/RS256) são verificados pelo JWKS público
+     * em {SUPABASE_URL}/auth/v1/.well-known/jwks.json. Se o projeto ainda usar o segredo JWT legado (HS256)
+     * e SUPABASE_JWT_SECRET estiver definido, esses tokens são verificados com ele.
+     */
+    private static JwtDecoder supabaseDecoder(JmfProperties.Auth auth, Clock clock) {
+        String url = trimSlash(auth.supabaseUrl());
+        if (url == null || url.isBlank()) {
+            throw new IllegalStateException("SUPABASE_URL é obrigatório quando jmf.auth.mode=supabase");
+        }
+        String authBase = url + "/auth/v1";
+        String jwksUri = auth.jwksUri() != null && !auth.jwksUri().isBlank()
+                ? auth.jwksUri() : authBase + "/.well-known/jwks.json";
+        String issuer = auth.issuer() != null && !auth.issuer().isBlank() ? auth.issuer() : authBase;
+        String audience = auth.audience() != null && !auth.audience().isBlank() ? auth.audience() : "authenticated";
+        JwtDecoder asymmetric = new NeonJwtDecoder(new JwksProvider(URI.create(jwksUri), auth.jwksCacheTtl(), clock),
+                issuer, audience, auth.clockSkew(), clock);
+
+        byte[] secret = auth.supabaseJwtSecret() == null ? new byte[0]
+                : auth.supabaseJwtSecret().getBytes(StandardCharsets.UTF_8);
+        if (secret.length == 0) {
+            return asymmetric;
+        }
+        if (secret.length < 32) {
+            throw new IllegalStateException("SUPABASE_JWT_SECRET precisa de ao menos 32 bytes");
+        }
+        NimbusJwtDecoder legacy = NimbusJwtDecoder
+                .withSecretKey(new SecretKeySpec(secret, "HmacSHA256"))
+                .macAlgorithm(MacAlgorithm.HS256)
+                .build();
+        legacy.setJwtValidator(new DelegatingOAuth2TokenValidator<>(
+                JwtValidators.createDefaultWithIssuer(issuer),
+                new JwtClaimValidator<List<String>>("aud", aud -> aud != null && aud.contains(audience))));
+        return token -> {
+            String alg;
+            try {
+                alg = JWTParser.parse(token).getHeader().getAlgorithm().getName();
+            } catch (ParseException e) {
+                throw new BadJwtException("Token malformado");
+            }
+            return "HS256".equals(alg) ? legacy.decode(token) : asymmetric.decode(token);
+        };
     }
 
     private static String requireBase(String base) {
