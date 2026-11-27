@@ -2,7 +2,7 @@
 
 import Image from 'next/image'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { useState, type FormEvent } from 'react'
 import { Check, ClipboardList, Eye, EyeOff, LoaderCircle, LogIn, MapPin, Sparkles, Truck, UserPlus, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -28,6 +28,7 @@ const logoSrc = 'https://hebbkx1anhila5yf.public.blob.vercel-storage.com/Gemini_
 
 export function AuthForm({ mode }: { mode: AuthFormMode }) {
   const router = useRouter()
+  const passwordWasReset = useSearchParams().get('senha') === 'redefinida'
   const [isPending, setIsPending] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [phone, setPhone] = useState('')
@@ -222,7 +223,11 @@ export function AuthForm({ mode }: { mode: AuthFormMode }) {
                       <button type="button" onClick={handleGeneratePassword} className="inline-flex items-center gap-1 text-xs font-medium text-primary underline-offset-4 hover:underline">
                         <Sparkles aria-hidden="true" className="size-3.5" /> Gerar senha forte
                       </button>
-                    ) : null}
+                    ) : (
+                      <Link href="/auth/forgot-password" className="text-xs font-medium text-primary underline-offset-4 hover:underline">
+                        Esqueci minha senha
+                      </Link>
+                    )}
                   </div>
                   <div className="relative">
                     <Input
@@ -272,6 +277,11 @@ export function AuthForm({ mode }: { mode: AuthFormMode }) {
                 </Field>
               </FieldGroup>
 
+              {passwordWasReset && !isSignUp && !errorMessage ? (
+                <p role="status" className="rounded-lg bg-emerald-500/10 px-3 py-2 text-sm text-emerald-700 dark:text-emerald-300">
+                  Senha redefinida com sucesso. Entre com a nova senha.
+                </p>
+              ) : null}
               {errorMessage ? <p role="alert" aria-live="polite" className="text-sm text-destructive">{errorMessage}</p> : null}
 
               <Button type="submit" size="lg" className="w-full" disabled={isPending}>
