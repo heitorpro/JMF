@@ -3,4 +3,4 @@ data/
 .env
 .idea/
 *.iml
-.vscode/
+.vscode/launch.json
